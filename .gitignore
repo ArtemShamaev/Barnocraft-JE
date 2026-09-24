@@ -1,0 +1,8 @@
+/target/
+/.mvn/repository/
+/.idea/
+*.iml
+*.log
+hs_err_pid*
+
+/saves/
