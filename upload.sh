@@ -21,9 +21,8 @@ fi
 git remote get-url origin >/dev/null 2>&1 || git remote add origin "$REMOTE_URL"
 git remote set-url origin "$REMOTE_URL"
 
-# Build artifacts, saves and downloaded JDK installers do not belong in Git.
-# .gitignore excludes them while staging, without passing ignored directories
-# as explicit pathspecs (which makes Git print a warning and return non-zero).
+# The packaged target/ directory is published intentionally. Saves and
+# downloaded JDK installers remain excluded by .gitignore.
 git add -A .
 
 if git diff --cached --quiet; then
@@ -32,5 +31,8 @@ if git diff --cached --quiet; then
 fi
 
 git commit -m "$COMMIT_MESSAGE"
-git push -u origin "$(git branch --show-current)"
+# The repository history was cleaned from the accidentally committed JDK;
+# force-with-lease is required once to replace the old remote history while
+# still refusing to overwrite a remote update we have not fetched.
+git push --force-with-lease -u origin "$(git branch --show-current)"
 echo "Изменения отправлены в $REMOTE_URL"

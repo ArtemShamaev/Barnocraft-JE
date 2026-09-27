@@ -1,0 +1,28 @@
+-------------------------------------------------------------------------------
+Test set: com.barnocraft.SurvivalTest
+-------------------------------------------------------------------------------
+Tests run: 4, Failures: 1, Errors: 1, Skipped: 0, Time elapsed: 0.091 s <<< FAILURE! -- in com.barnocraft.SurvivalTest
+com.barnocraft.SurvivalTest.timeHealthZombiesAndInventorySurviveSaving -- Time elapsed: 0.031 s <<< ERROR!
+java.io.EOFException
+	at java.base/java.io.DataInputStream.readFully(DataInputStream.java:210)
+	at java.base/java.io.DataInputStream.readUTF(DataInputStream.java:594)
+	at java.base/java.io.DataInputStream.readUTF(DataInputStream.java:550)
+	at com.barnocraft.SaveStore.load(SaveStore.java:214)
+	at com.barnocraft.SurvivalTest.timeHealthZombiesAndInventorySurviveSaving(SurvivalTest.java:50)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+com.barnocraft.SurvivalTest.attackCooldownExpiresAndWallsAndHeightProtectPlayer -- Time elapsed: 0.015 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: expected: <18> but was: <16>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:145)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:531)
+	at com.barnocraft.SurvivalTest.attackCooldownExpiresAndWallsAndHeightProtectPlayer(SurvivalTest.java:28)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+

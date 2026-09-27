@@ -1,0 +1,16 @@
+-------------------------------------------------------------------------------
+Test set: com.barnocraft.TextureRenderingTest
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.017 s <<< FAILURE! -- in com.barnocraft.TextureRenderingTest
+com.barnocraft.TextureRenderingTest.machinesAreOpaqueAndToolHeadsHaveSeparateSprites -- Time elapsed: 0.017 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: Machine block faces have no holes ==> expected: <256> but was: <168>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:150)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:563)
+	at com.barnocraft.TextureRenderingTest.machinesAreOpaqueAndToolHeadsHaveSeparateSprites(TextureRenderingTest.java:29)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+

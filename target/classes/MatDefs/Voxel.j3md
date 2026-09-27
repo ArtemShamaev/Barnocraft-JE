@@ -1,0 +1,24 @@
+MaterialDef Voxel {
+    MaterialParameters {
+        Texture2D DiffuseMap
+        Color Diffuse
+        Color Ambient
+        Boolean UseMaterialColors
+        Boolean UseFog
+        Color FogColor
+        Vector2 LinearFog
+        Float AlphaDiscardThreshold : 0.01
+        Float Daylight : 1.0
+        Float Underwater : 0.0
+        Vector3 TorchPos
+        Boolean HeldTorch : false
+    }
+    Technique {
+        VertexShader GLSL100: MatDefs/Voxel.vert
+        FragmentShader GLSL100: MatDefs/Voxel.frag
+        WorldParameters {
+            WorldViewProjectionMatrix
+            WorldViewMatrix
+        }
+    }
+}
