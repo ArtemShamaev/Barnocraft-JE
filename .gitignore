@@ -4,5 +4,6 @@
 *.iml
 *.log
 hs_err_pid*
+*.exe
 
 /saves/
