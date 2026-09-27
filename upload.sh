@@ -22,9 +22,9 @@ git remote get-url origin >/dev/null 2>&1 || git remote add origin "$REMOTE_URL"
 git remote set-url origin "$REMOTE_URL"
 
 # Build artifacts, saves and downloaded JDK installers do not belong in Git.
-# Exclude them while staging instead of staging everything and trying to
-# unstage path patterns afterwards.
-git add -A -- ':!*.exe' ':!target/**' ':!saves/**'
+# .gitignore excludes them while staging, without passing ignored directories
+# as explicit pathspecs (which makes Git print a warning and return non-zero).
+git add -A .
 
 if git diff --cached --quiet; then
     echo "Нет изменений для отправки."
