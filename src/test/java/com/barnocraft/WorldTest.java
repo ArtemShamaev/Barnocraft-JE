@@ -40,4 +40,46 @@ class WorldTest {
             assertEquals(new World.Hit(20,10,20,n[0],n[1],n[2]), hit);
         }
     }
+    @Test void sheepDropsMuttonAndWoolWhenKilled() {
+        World world=World.flat();
+        world.addSheep(new Sheep(20.5f,6f,20.5f,3));
+        Inventory inventory=new Inventory();
+        Vector3f playerEye=new Vector3f(20.5f,6.55f,15f);
+        Vector3f look=new Vector3f(0,0,1);
+
+        assertTrue(world.attackSheep(playerEye,look,Player.REACH,inventory));
+        assertEquals(2,world.sheep().get(0).health());
+        assertTrue(world.sheep().get(0).fleeTime()>0);
+        assertTrue(world.attackSheep(playerEye,look,Player.REACH,inventory));
+        assertTrue(world.attackSheep(playerEye,look,Player.REACH,inventory));
+        assertTrue(world.sheep().isEmpty());
+        assertEquals(1,inventory.count(ItemType.MUTTON));
+        assertEquals(1,inventory.count(ItemType.WOOL));
+        assertTrue(world.droppedItems().isEmpty());
+    }
+    @Test void sheepRunAwayAndCannotWalkThroughSolidBlocks() {
+        World world=World.flat();
+        world.set(21,6,20,Block.STONE);
+        world.addSheep(new Sheep(20.5f,6f,20.5f,3,1,0,0));
+        for(int i=0;i<20;i++) world.updateSheep(.1f);
+        assertTrue(world.sheep().get(0).x()<20.7f,"Stone wall blocks the sheep");
+
+        World fleeing=World.flat();
+        fleeing.addSheep(new Sheep(20.5f,6f,20.5f,3));
+        Vector3f attacker=new Vector3f(20.5f,6.5f,18f);
+        assertTrue(fleeing.attackSheep(attacker,new Vector3f(0,0,1),Player.REACH,new Inventory()));
+        float before=fleeing.sheep().get(0).z();
+        fleeing.updateSheep(.1f);
+        assertTrue(fleeing.sheep().get(0).z()>before,"Sheep flees away from the attacker");
+    }
+    @Test void newWorldStartsWithSheepNearSpawnAndCanReplenishOldWorlds() {
+        World world=new World(1942);
+        Vector3f spawn=new Vector3f(World.WIDTH/2f+.5f,20,World.DEPTH/2f+.5f);
+        assertTrue(world.sheep().size()>=20);
+        assertTrue(world.sheep().stream().anyMatch(s -> Math.hypot(s.x()-spawn.x,s.z()-spawn.z)<72));
+
+        World old=World.flat();
+        old.ensureSheepNear(spawn);
+        assertTrue(old.sheep().size()>=16);
+    }
 }

@@ -6,10 +6,28 @@ import com.jme3.math.Vector3f;
 public final class Player {
     public static final float HALF_WIDTH = .3f, HEIGHT = 1.8f, EYE = 1.62f;
     public static final float REACH = 5f;
+    public static final int MAX_HEALTH = 20;
     private static final float EPSILON = .00001f;
     public final Vector3f position = new Vector3f(40, 6.001f, 40);
     public float velocityY;
     public boolean grounded = true;
+    private int health = MAX_HEALTH;
+
+    public int health() { return health; }
+    public boolean eatMutton(Inventory inventory,int slot) {
+        if(health>=MAX_HEALTH || !inventory.consumeAt(slot,ItemType.MUTTON)) return false;
+        restoreHealth(health+3); return true;
+    }
+    public boolean damage(int amount) {
+        if(amount<=0 || health<=0) return false;
+        health=Math.max(0,health-amount);
+        return true;
+    }
+    public void restoreHealth(int value) { health=Math.max(0,Math.min(MAX_HEALTH,value)); }
+    public boolean dead() { return health<=0; }
+    public boolean inWater(World world) {
+        return world.get((int)Math.floor(position.x),(int)Math.floor(position.y+.1f),(int)Math.floor(position.z))==Block.WATER;
+    }
 
     public void update(World world, float dt, Vector3f movement, boolean jump) {
         if (jump && grounded) { velocityY = 8; grounded = false; }
@@ -90,6 +108,7 @@ public final class Player {
         }
         velocityY = 0;
         grounded = false;
+        health=MAX_HEALTH;
     }
     private static int floor(float value) { return (int) Math.floor(value); }
 }

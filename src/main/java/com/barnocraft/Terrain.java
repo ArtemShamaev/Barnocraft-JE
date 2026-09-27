@@ -2,13 +2,41 @@ package com.barnocraft;
 
 /** Seeded smooth value noise sampled in world coordinates, including across chunk seams. */
 final class Terrain {
+    static final int WATER_LEVEL=10;
     private Terrain() {}
 
+    static boolean desert(long seed,int x,int z) {
+        double biome=noise(seed^0x444553455254L,x/290.0,z/290.0);
+        double patch=noise(seed+71,x/92.0,z/92.0);
+        return biome>.02 && patch>-.38;
+    }
+
     static int height(long seed, int x, int z) {
-        double hills = noise(seed, x / 28.0, z / 28.0) * 5.0;
-        double slopes = noise(seed + 1, x / 14.0, z / 14.0) * 2.0;
-        double detail = noise(seed + 2, x / 7.0, z / 7.0) * .7;
-        return Math.max(3, Math.min(17, (int) Math.round(10 + hills + slopes + detail)));
+        double broad = noise(seed, x / 105.0, z / 105.0) * 10.0;
+        double slopes = noise(seed + 1, x / 39.0, z / 39.0) * 5.0;
+        double detail = noise(seed + 2, x / 13.0, z / 13.0) * 2.0;
+        double mountainField = Math.max(0,noise(seed + 3,x / 185.0,z / 185.0)-.12);
+        double mountain = Math.pow(mountainField,1.35)*112
+                + (mountainField>0 ? (1-Math.abs(noise(seed+4,x/31.0,z/31.0)))*8 : 0);
+        int surface=(int)Math.round(14+broad+slopes+detail+mountain);
+
+        // A broad, meandering lowland is the river bed. Keep the spawn area
+        // dry so a new player never starts in water.
+        if (river(seed,x,z) && (Math.abs(x-World.WIDTH/2)>18 || Math.abs(z-World.DEPTH/2)>18))
+            surface=Math.min(surface,WATER_LEVEL-1);
+
+        double canyon = Math.abs(noise(seed ^ 0x43414E594F4EL,x/112.0,z/112.0));
+        if (canyon<.105) {
+            int floor=9+(int)Math.round(Math.abs(noise(seed+5,x/27.0,z/27.0))*5);
+            surface=Math.min(surface,floor);
+        }
+        return Math.max(4,Math.min(World.HEIGHT-8,surface));
+    }
+
+    static boolean river(long seed,int x,int z) {
+        double bank=Math.abs(noise(seed ^ 0x524956455242414EL,x/82.0,z/82.0));
+        double bend=noise(seed ^ 0x524956455242454DL,x/210.0,z/210.0);
+        return bank<.075 && Math.abs(bend)>.08;
     }
 
     static Block rock(long seed, int x, int y, int z, int depth) {

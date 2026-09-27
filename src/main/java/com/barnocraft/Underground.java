@@ -26,13 +26,13 @@ final class Underground {
             double x = sx + .5, z = sz + .5, y = world.groundHeight(sx, sz) - 3.5;
             double startY = y, heading = caves.nextDouble() * Math.PI * 2;
             double entranceHeading = heading + Math.PI;
-            for (int step = 0; step < 75; step++) {
+            for (int step = 0; step < 110; step++) {
                 carve(world, x, y, z, 1.7 + caves.nextDouble() * .6, false);
                 if (step % 24 == 12) carve(world, x, y, z, 3, false);
                 heading += (caves.nextDouble() - .5) * .45;
                 x = Math.max(4, Math.min(world.width() - 5, x + Math.cos(heading) * .85));
                 z = Math.max(4, Math.min(world.depth() - 5, z + Math.sin(heading) * .85));
-                y += (caves.nextDouble() - .5) * .4;
+                y += (caves.nextDouble() - .5) * .4 - (step<65 ? .18 : 0);
                 y = Math.max(3, Math.min(world.groundHeight((int) x, (int) z) - 3, y));
             }
             // A gently rising passage opens the underground system onto the surface.
@@ -57,7 +57,7 @@ final class Underground {
                     if (dx * dx + dy * dy + dz * dz > 1) continue;
                     if (!entrance && y > world.groundHeight(x,z) - 2) continue;
                     Block block = world.get(x,y,z);
-                    if (block.rock() || block == Block.GRASS) world.set(x,y,z,Block.AIR);
+                    if (block.rock() || (block == Block.GRASS || block == Block.SAND)) world.set(x,y,z,Block.AIR);
                 }
             }
     }

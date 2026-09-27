@@ -16,31 +16,51 @@ final class Region implements VoxelVolume {
             for (int z = 0; z < DEPTH; z++) {
                 int surface = features ? Terrain.height(seed, x + ox, z + oz) : 5;
                 ground[x][z] = surface;
+                boolean desert=features && Terrain.desert(seed,x+ox,z+oz);
                 for (int y = 0; y <= surface; y++)
-                    set(x, y, z, y == surface ? Block.GRASS
+                    set(x, y, z, y == surface ? desert?Block.SAND:Block.GRASS
                             : features ? Terrain.rock(seed, x + ox, y, z + oz, surface - y) : Block.STONE);
+                if (features && Terrain.river(seed,x+ox,z+oz)
+                        && (Math.abs(x+ox-worldWidth/2)>18 || Math.abs(z+oz-worldDepth/2)>18)) {
+                    for (int y=surface+1; y<=Terrain.WATER_LEVEL; y++) set(x,y,z,Block.WATER);
+                }
             }
         }
         if (features) {
             Underground.generate(this, seed ^ ((long) ox << 32) ^ oz);
-            generateTrees(new Random(seed ^ ((long) ox << 32) ^ oz));
+            generateTrees(new Random(seed ^ ((long) ox << 32) ^ oz),seed);
         }
     }
 
-    private void generateTrees(Random random) {
+    private void generateTrees(Random random,long seed) {
         // Jittered, randomly occupied cells give trees space without a regular grid of trunks.
         // The two-block crown radius always stays inside the world.
         for (int cellX = 3; cellX < WIDTH - 2; cellX += 8) {
             for (int cellZ = 3; cellZ < DEPTH - 2; cellZ += 8) {
-                if (random.nextFloat() > .7f) continue;
                 int x = cellX + random.nextInt(Math.min(4, WIDTH - 2 - cellX));
                 int z = cellZ + random.nextInt(Math.min(4, DEPTH - 2 - cellZ));
+                boolean desert=Terrain.desert(seed,x+ox,z+oz);
+                if (Terrain.river(seed,x+ox,z+oz)) continue;
+                if (random.nextFloat() > (desert?.025f:.7f)) continue;
                 // Includes crown clearance around the player's starting point.
                 if (protectedSpawn(x,z,7)) continue;
-                if (get(x, groundHeight(x,z), z) == Block.GRASS)
-                    growTree(x, z, 4 + random.nextInt(3));
+                int height=4+random.nextInt(3);
+                if (get(x, groundHeight(x,z), z) == Block.GRASS && crownClear(x,z,height))
+                    growTree(x, z, height);
             }
         }
+    }
+
+    private boolean crownClear(int x,int z,int treeHeight) {
+        int base=groundHeight(x,z)+1,top=base+treeHeight-1;
+        for(int y=top-1;y<=top+2;y++) {
+            int radius=y<=top?2:1;
+            for(int dx=-radius;dx<=radius;dx++) for(int dz=-radius;dz<=radius;dz++) {
+                if((radius==2 || y==top+2) && Math.abs(dx)==radius && Math.abs(dz)==radius) continue;
+                if(groundHeight(x+dx,z+dz)>=y) return false;
+            }
+        }
+        return true;
     }
 
     private void growTree(int x, int z, int height) {

@@ -21,11 +21,12 @@ class TreeGenerationTest {
     @Test void treesHaveRootedTrunksCrownsAndSafeSpawnAcrossSeeds() {
         for (long seed = 0; seed < 20; seed++) {
             World world = World.sample(seed);
-            int trees = 0;
+            int trees = 0, fertileColumns=0;
             for (int x = 0; x < 80; x++) {
                 for (int z = 0; z < 80; z++) {
                     int base = world.groundHeight(x,z) + 1;
-                    assertTrue(world.get(x,base - 1,z) == Block.GRASS || world.get(x,base - 1,z) == Block.AIR);
+                    if(world.get(x,base-1,z)==Block.GRASS) fertileColumns++;
+                    assertTrue(world.get(x,base - 1,z) == Block.GRASS || world.get(x,base - 1,z) == Block.SAND || world.get(x,base - 1,z) == Block.AIR);
                     if (world.get(x,base,z) == Block.LOG) {
                         trees++;
                         assertEquals(Block.GRASS, world.get(x,base - 1,z));
@@ -55,7 +56,7 @@ class TreeGenerationTest {
                     }
                 }
             }
-            assertTrue(trees >= 30 && trees <= 100, "Forest covers the world");
+            assertTrue(trees >= Math.max(0,20*fertileColumns/6400-4) && trees <= 100, "Tree density follows grassland coverage");
             Player player = new Player();
             player.respawn(world);
             assertFalse(player.collides(world));

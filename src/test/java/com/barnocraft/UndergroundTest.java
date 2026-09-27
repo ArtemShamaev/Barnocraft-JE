@@ -41,7 +41,7 @@ class UndergroundTest {
             totalCoal += coal; totalIron += iron;
         }
         assertTrue(totalCoal < 20993 * .75, "Less coal than the previous balance on these seeds");
-        assertTrue(totalIron > 2365 && totalIron < 9130 * .8, "Iron lies between the original rare and excessive settings");
+        assertTrue(totalIron > 2365 && totalIron < 9130 * .9, "Deeper caves expose more iron without reaching the excessive setting");
         double ratio = (double) totalCoal / totalIron;
         assertTrue(ratio > .5 && ratio < 3, "Neither ore overwhelms the other");
         System.out.println("Ore totals across 20 seeds: coal=" + totalCoal + ", iron=" + totalIron);
@@ -59,7 +59,7 @@ class UndergroundTest {
         int deep = 0;
         while (!queue.isEmpty()) {
             int[] p = queue.remove();
-            if (world.groundHeight(p[0],p[2]) - p[1] >= 3) deep++;
+            if (world.groundHeight(p[0],p[2]) - p[1] >= 8) deep++;
             for (int[] d : SIDES) {
                 int x = p[0]+d[0], y = p[1]+d[1], z = p[2]+d[2];
                 if (!world.inside(x,y,z) || seen[x][y][z] || world.get(x,y,z) != Block.AIR) continue;
