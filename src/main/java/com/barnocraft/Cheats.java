@@ -6,6 +6,18 @@ import java.util.Locale;
 final class Cheats {
     private Cheats() {}
 
+    static String execute(String line,Inventory inventory,World world,Player player) {
+        String command=line.trim();
+        if(command.startsWith("/"))command=command.substring(1);
+        String[] args=command.split("\\s+");
+        if(args[0].equalsIgnoreCase("gamemode")) {
+            if(args.length!=2 || !(args[1].equals("0") || args[1].equals("1")))return "Формат: gamemode 0|1";
+            boolean creative=args[1].equals("1");
+            player.setCreative(creative); inventory.setCreative(creative);
+            return creative?"Креатив: E — предметы, Пробел / Shift — полёт":"Режим выживания";
+        }
+        return execute(command,inventory,world,player.position);
+    }
     static String execute(String line,Inventory inventory,World world,Vector3f player) {
         String[] args=line.trim().split("\\s+");
         if (args.length==0 || args[0].isBlank()) return "Введите команду";
@@ -17,7 +29,7 @@ final class Cheats {
             case "time" -> time(args,world);
             case "setblock" -> setBlock(args,world);
             case "tp" -> teleport(args,world,player);
-            default -> "Команды: give, spawn sheep, kill, keepInventory, time, setblock";
+            default -> "Команды: gamemode 0|1, give, spawn sheep, kill, keepInventory, time, setblock";
         };
     }
 
@@ -77,15 +89,23 @@ final class Cheats {
     private static ItemType findItem(String value) {
         String normalized=value.toLowerCase(Locale.ROOT).replace("_","").replace("-","");
         for(ItemType type:ItemType.values()) {
-            if(type.name().toLowerCase(Locale.ROOT).replace("_","").equals(normalized)
+            if(type.retired()) continue;
+            if(type.name().substring(type.name().indexOf(':')+1).toLowerCase(Locale.ROOT).replace("_","").equals(normalized)
+                    || type.name().toLowerCase(Locale.ROOT).replace("_","").equals(normalized)
                     || type.title.toLowerCase(Locale.ROOT).replace(" ","").equals(normalized)) return type;
         }
         return null;
     }
 
     private static String spawn(String[] args,World world,Vector3f player) {
-        if(args.length<2 || !(args[1].equalsIgnoreCase("sheep") || args[1].equalsIgnoreCase("овца"))) {
-            return "Формат: spawn sheep [количество]";
+        if(args.length<2) return "Формат: spawn <тип> [количество]";
+        if(!(args[1].equalsIgnoreCase("sheep") || args[1].equalsIgnoreCase("овца"))) {
+            String type=world.mods.definitions.keySet().stream().filter(k->k.equals(args[1]) || k.endsWith(":"+args[1])).findFirst().orElse(null);
+            if(type==null) return "Неизвестный тип существа";
+            int count;try{count=args.length>2?Integer.parseInt(args[2]):1;}catch(NumberFormatException e){return "Количество должно быть числом";}
+            if(count<1 || count>8)return "Количество должно быть от 1 до 8";
+            int made=0;for(int i=0;i<count;i++)try{world.mods.spawn(type,player.x+3+i,player.z+2);made++;}catch(IllegalArgumentException ignored){}
+            return "Создано: "+made;
         }
         int amount=1;
         try { if(args.length>2) amount=Integer.parseInt(args[2]); }

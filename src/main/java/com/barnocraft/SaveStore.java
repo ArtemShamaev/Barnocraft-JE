@@ -8,11 +8,16 @@ import java.util.zip.*;
 /** Five independent, versioned saves. Write a temporary file before atomically replacing a slot. */
 public final class SaveStore {
     // VERSION covers both the file schema and the procedural generator used by stored seeds.
-    private static final int MAGIC = 0x4241524E, VERSION = 14;
+    private static final int MAGIC = 0x4241524E, VERSION = 21;
     private final Path directory;
     public SaveStore(Path directory) { this.directory = directory; }
-    public record Pose(float x, float y, float z, float yaw, float pitch, int selected,int health) {
-        public Pose(float x,float y,float z,float yaw,float pitch,int selected) { this(x,y,z,yaw,pitch,selected,Player.MAX_HEALTH); }
+    public record Pose(float x, float y, float z, float yaw, float pitch, int selected,int health,int hunger,float respawnX,float respawnY,float respawnZ,boolean creative) {
+        public Pose(float x,float y,float z,float yaw,float pitch,int selected,int health,int hunger,float respawnX,float respawnY,float respawnZ) {
+            this(x,y,z,yaw,pitch,selected,health,hunger,respawnX,respawnY,respawnZ,false);
+        }
+        public Pose(float x,float y,float z,float yaw,float pitch,int selected,int health,int hunger) { this(x,y,z,yaw,pitch,selected,health,hunger,-1,-1,-1); }
+        public Pose(float x,float y,float z,float yaw,float pitch,int selected,int health) { this(x,y,z,yaw,pitch,selected,health,Player.MAX_HUNGER,-1,-1,-1); }
+        public Pose(float x,float y,float z,float yaw,float pitch,int selected) { this(x,y,z,yaw,pitch,selected,Player.MAX_HEALTH,Player.MAX_HUNGER,-1,-1,-1); }
     }
     public record Saved(World world, Pose pose, Inventory.Snapshot inventory,String worldName) {}
     public Path slotPath(int slot) {
@@ -45,7 +50,8 @@ public final class SaveStore {
                 out.writeInt(MAGIC); out.writeInt(VERSION); out.writeUTF(safeName);
                 out.writeFloat(world.dayTime()); out.writeBoolean(world.keepInventory()); out.writeLong(world.seed());
                 out.writeFloat(pose.x()); out.writeFloat(pose.y()); out.writeFloat(pose.z());
-                out.writeFloat(pose.yaw()); out.writeFloat(pose.pitch()); out.writeInt(pose.selected()); out.writeInt(pose.health());
+                out.writeFloat(pose.yaw()); out.writeFloat(pose.pitch()); out.writeInt(pose.selected()); out.writeInt(pose.health()); out.writeInt(pose.hunger());
+                out.writeFloat(pose.respawnX());out.writeFloat(pose.respawnY());out.writeFloat(pose.respawnZ());out.writeBoolean(pose.creative());
                 out.writeInt(world.edits().size());
                 for (var entry : world.edits().entrySet()) { out.writeInt(entry.getKey()); out.writeUTF(entry.getValue().name()); }
                 out.writeInt(world.doors().size());
@@ -76,7 +82,7 @@ public final class SaveStore {
                 out.writeInt(world.sheep().size());
                 for (Sheep sheep:world.sheep()) {
                     out.writeFloat(sheep.x()); out.writeFloat(sheep.y()); out.writeFloat(sheep.z()); out.writeInt(sheep.health());
-                    out.writeFloat(sheep.directionX()); out.writeFloat(sheep.directionZ()); out.writeFloat(sheep.fleeTime());
+                    out.writeFloat(sheep.directionX()); out.writeFloat(sheep.directionZ()); out.writeFloat(sheep.fleeTime());out.writeUTF(sheep.id());
                 }
                 out.writeInt(world.workshops().size());
                 for(var entry:world.workshops().entrySet()) {
@@ -86,8 +92,18 @@ public final class SaveStore {
                 out.writeInt(world.zombies().size());
                 for(Zombie zombie:world.zombies()) {
                     out.writeFloat(zombie.x()); out.writeFloat(zombie.y()); out.writeFloat(zombie.z());
-                    out.writeInt(zombie.health()); out.writeFloat(zombie.attackCooldown());
+                    out.writeInt(zombie.health()); out.writeFloat(zombie.attackCooldown()); out.writeUTF(zombie.id());
                 }
+                byte[] modData=world.modData().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                out.writeInt(modData.length);out.write(modData);
+                out.writeInt(world.chests().size());
+                for(var entry:world.chests().entrySet()) {
+                    out.writeInt(entry.getKey());out.writeBoolean(entry.getValue().deathCache());out.writeBoolean(entry.getValue().opened());
+                    for(Inventory.Slot chestSlot:entry.getValue().slots())writeSlot(out,chestSlot);
+                }
+                out.writeInt(world.waterLevels().size());
+                for(var entry:world.waterLevels().entrySet()) { out.writeInt(entry.getKey());out.writeByte(entry.getValue()); }
+
             }
             replace(temp,target);
         } finally { Files.deleteIfExists(temp); }
@@ -108,12 +124,18 @@ public final class SaveStore {
             long seed = in.readLong();
             float px=in.readFloat(),py=in.readFloat(),pz=in.readFloat(),yaw=in.readFloat(),pitch=in.readFloat();
             int selected=in.readInt(),health=version>=12?in.readInt():Player.MAX_HEALTH;
-            Pose pose = new Pose(px,py,pz,yaw,pitch,selected,health);
+            int hunger=version>=17?in.readInt():Player.MAX_HUNGER;
+            float respawnX=version>=19?in.readFloat():-1,respawnY=version>=19?in.readFloat():-1,respawnZ=version>=19?in.readFloat():-1;
+            boolean creative=version>=20 && in.readBoolean();
+            Pose pose = new Pose(px,py,pz,yaw,pitch,selected,health,hunger,respawnX,respawnY,respawnZ,creative);
             if (!Float.isFinite(pose.x()+pose.y()+pose.z()+pose.yaw()+pose.pitch())
                     || pose.x() < 0 || pose.x() >= World.WIDTH || pose.z() < 0 || pose.z() >= World.DEPTH
                     || pose.y() < -100 || pose.y() > World.HEIGHT+100 || Math.abs(pose.pitch()) > Math.PI/2
                     || pose.selected() < 0 || pose.selected() >= Block.HOTBAR.length
-                    || pose.health()<0 || pose.health()>Player.MAX_HEALTH) throw new IOException("Некорректная позиция игрока");
+                    || pose.health()<0 || pose.health()>Player.MAX_HEALTH
+                    || pose.hunger()<0 || pose.hunger()>Player.MAX_HUNGER
+                    || !Float.isFinite(pose.respawnX()+pose.respawnY()+pose.respawnZ())
+                    || (pose.respawnX()>=0 && (pose.respawnX()>=World.WIDTH || pose.respawnZ()<0 || pose.respawnZ()>=World.DEPTH || pose.respawnY()<0 || pose.respawnY()>=World.HEIGHT))) throw new IOException("Некорректная позиция игрока");
             int count = in.readInt(), max = World.WIDTH * World.DEPTH * World.HEIGHT;
             if (count < 0 || count > max) throw new IOException("Некорректный размер сохранения");
             Map<Integer,Block> edits = new HashMap<>();
@@ -145,14 +167,14 @@ public final class SaveStore {
                         throw new IOException("Некорректная ориентация блока");
                 }
             }
-            Inventory.Snapshot inventory = version >= 3 ? readInventory(in,version>=7) : Inventory.emptySnapshot();
+            Inventory.Snapshot inventory = version >= 3 ? readInventory(in,version>=7,version>=15) : Inventory.emptySnapshot();
             Map<Integer,World.MachineSlots> stonecutters = new HashMap<>();
             if (version >= 4) {
                 int machineCount=in.readInt();
                 if (machineCount<0 || machineCount>count) throw new IOException("Некорректное число камнерезов");
                 for (int i=0;i<machineCount;i++) {
                     int key=in.readInt();
-                    Inventory.Slot coal=readSlot(in,version>=7), stone=readSlot(in,version>=7), output=readSlot(in,version>=7);
+                    Inventory.Slot coal=readSlot(in,version>=7,version>=15), stone=readSlot(in,version>=7,version>=15), output=readSlot(in,version>=7,version>=15);
                         ItemType recipe=version>=5?ItemType.valueOf(in.readUTF()):ItemType.AXE_HEAD;
                     if (key<0 || key>=max || edits.get(key)!=Block.STONECUTTER
                             || !validMachineSlot(coal,ItemType.COAL) || !validMachineSlot(stone,World.stonecutterMaterial(recipe))
@@ -168,7 +190,7 @@ public final class SaveStore {
                 if (furnaceCount<0 || furnaceCount>count) throw new IOException("Некорректное число печей");
                 for (int i=0;i<furnaceCount;i++) {
                     int key=in.readInt();
-                        Inventory.Slot coal=readSlot(in,version>=7), input=readSlot(in,version>=7), output=readSlot(in,version>=7);
+                        Inventory.Slot coal=readSlot(in,version>=7,version>=15), input=readSlot(in,version>=7,version>=15), output=readSlot(in,version>=7,version>=15);
                     if (key<0 || key>=max || edits.get(key)!=Block.FURNACE
                             || !validFurnaceSlots(coal,input,output)
                             || furnaces.put(key,new World.FurnaceSlots(coal,input,output))!=null) {
@@ -185,25 +207,12 @@ public final class SaveStore {
                     float directionX=version>=11?in.readFloat():1f;
                     float directionZ=version>=11?in.readFloat():0f;
                     float fleeTime=version>=11?in.readFloat():0f;
-                    Sheep animal=new Sheep(x,y,z,sheepHealth,directionX,directionZ,fleeTime);
+                    Sheep animal=version>=15?new Sheep(x,y,z,sheepHealth,directionX,directionZ,fleeTime,in.readUTF()):new Sheep(x,y,z,sheepHealth,directionX,directionZ,fleeTime);
                     if (!Float.isFinite(animal.x()+animal.y()+animal.z()) || animal.x()<0 || animal.x()>=World.WIDTH
                             || animal.y()<0 || animal.y()>World.HEIGHT+4 || animal.z()<0 || animal.z()>=World.DEPTH
                         || animal.health()<1 || animal.health()>3 || !Float.isFinite(directionX+directionZ+fleeTime)
                         || fleeTime<0 || fleeTime>4.1f) throw new IOException("Некорректная овца");
                     sheep.add(animal);
-                }
-            }
-            List<Zombie> zombies=new ArrayList<>();
-            if(version>=13) {
-                int zombieCount=in.readInt();
-                if(zombieCount<0 || zombieCount>10000) throw new IOException("Некорректное число зомби");
-                for(int i=0;i<zombieCount;i++) {
-                    Zombie zombie=new Zombie(in.readFloat(),in.readFloat(),in.readFloat(),in.readInt(),in.readFloat());
-                    if(!Float.isFinite(zombie.x()+zombie.y()+zombie.z()+zombie.attackCooldown())
-                            || zombie.x()<0 || zombie.x()>=World.WIDTH || zombie.y()<0 || zombie.y()>World.HEIGHT
-                            || zombie.z()<0 || zombie.z()>=World.DEPTH || zombie.health()<1 || zombie.health()>3
-                            || zombie.attackCooldown()<0 || zombie.attackCooldown()>1.1f) throw new IOException("Некорректный зомби");
-                    zombies.add(zombie);
                 }
             }
             Map<Integer,Metalworking.State> workshops=new HashMap<>();
@@ -213,16 +222,51 @@ public final class SaveStore {
                 for(int i=0;i<workshopCount;i++) {
                     int key=in.readInt(); ItemType recipe=ItemType.valueOf(in.readUTF());
                     List<Inventory.Slot> slots=new ArrayList<>();
-                    for(int j=0;j<11;j++) slots.add(readSlot(in,true));
+                    for(int j=0;j<11;j++) slots.add(readSlot(in,true,version>=15));
                     Block block=edits.get(key);
                     if(key<0 || key>=max || (block!=Block.CASTING_TABLE && block!=Block.WELDER))
                         throw new IOException("Повреждённый станок");
                     workshops.put(key,new Metalworking.State(block,slots,recipe));
                 }
             }
+            List<Zombie> zombies=new ArrayList<>();
+            if(version>=13) {
+                int zombieCount=in.readInt();
+                if(zombieCount<0 || zombieCount>10000) throw new IOException("Некорректное число зомби");
+                for(int i=0;i<zombieCount;i++) {
+                    float zx=in.readFloat(),zy=in.readFloat(),zz=in.readFloat();int zh=in.readInt();float cooldown=in.readFloat();
+                    Zombie zombie=version>=15?new Zombie(zx,zy,zz,zh,cooldown,0,0,in.readUTF()):new Zombie(zx,zy,zz,zh,cooldown);
+                    if(!Float.isFinite(zombie.x()+zombie.y()+zombie.z()+zombie.attackCooldown())
+                            || zombie.x()<0 || zombie.x()>=World.WIDTH || zombie.y()<0 || zombie.y()>World.HEIGHT
+                            || zombie.z()<0 || zombie.z()>=World.DEPTH || zombie.health()<1 || zombie.health()>8
+                            || zombie.attackCooldown()<0 || zombie.attackCooldown()>1.6f) throw new IOException("Некорректный зомби");
+                    zombies.add(zombie);
+                }
+            }
+            String modData="{}";
+            if(version>=15){int length=in.readInt();if(length<0 || length>8*1024*1024)throw new IOException("Invalid mod data length");byte[] data=in.readNBytes(length);if(data.length!=length)throw new EOFException();modData=new String(data,java.nio.charset.StandardCharsets.UTF_8);}
+            Map<Integer,World.ChestData> chests=new HashMap<>();
+            if(version>=18) {
+                int chestCount=in.readInt();if(chestCount<0 || chestCount>count)throw new IOException("Некорректное число сундуков");
+                for(int i=0;i<chestCount;i++) {
+                    int key=in.readInt();boolean deathCache=in.readBoolean(),opened=in.readBoolean();List<Inventory.Slot> contents=new ArrayList<>();
+                    for(int chestSlot=0;chestSlot<27;chestSlot++)contents.add(readSlot(in,version>=7,version>=15));
+                    if(key<0 || key>=max || edits.get(key)!=Block.CHEST || chests.put(key,new World.ChestData(contents,deathCache,opened))!=null)
+                        throw new IOException("Повреждённые данные сундука");
+                }
+            }
+            Map<Integer,Integer> waterLevels=new HashMap<>();
+            if(version>=21) {
+                int flowCount=in.readInt();if(flowCount<0 || flowCount>count)throw new IOException("Invalid water count");
+                for(int i=0;i<flowCount;i++) {
+                    int key=in.readInt(),level=in.readUnsignedByte();
+                    if(edits.get(key)!=Block.WATER || level<1 || level>7 || waterLevels.put(key,level)!=null)
+                        throw new IOException("Invalid water flow");
+                }
+            }
             if (edits.values().stream().filter(Block::door).count() != doorCount*2L || in.read()!=-1)
                 throw new IOException("Повреждённое сохранение");
-            World.Snapshot snapshot=new World.Snapshot(seed,edits,doors,rotations,stonecutters,furnaces,sheep,zombies,dayTime,keepInventory,workshops);
+            World.Snapshot snapshot=new World.Snapshot(seed,edits,doors,rotations,stonecutters,furnaces,sheep,zombies,dayTime,keepInventory,workshops,modData,chests,waterLevels);
             return new Saved(World.restore(snapshot),pose,inventory,worldName);
         } catch (IllegalArgumentException e) { throw new IOException("Неизвестный блок в сохранении",e); }
     }
@@ -239,13 +283,17 @@ public final class SaveStore {
 
     private static void writeSlot(DataOutputStream out,Inventory.Slot slot) throws IOException {
         out.writeBoolean(slot.item()!=null);
-        if (slot.item()!=null) out.writeUTF(slot.item().name());
+        if (slot.item()!=null) {
+            out.writeUTF(slot.item().name());
+            if(slot.item().name().contains(":")) out.writeUTF(Json.stringify(slot.item().definition));
+        }
         out.writeInt(slot.count());
         out.writeInt(slot.durability());
     }
 
-    private static Inventory.Slot readSlot(DataInputStream in,boolean hasDurability) throws IOException {
+    private static Inventory.Slot readSlot(DataInputStream in,boolean hasDurability,boolean hasModItems) throws IOException {
         ItemType item=in.readBoolean()?ItemType.valueOf(in.readUTF()):null;
+        if(hasModItems && item!=null && item.name().contains(":")) item=ItemType.register(item.name(),Json.obj(Json.parse(in.readUTF())));
         int count=in.readInt();
         int durability=hasDurability?in.readInt():item!=null && item.tool() && count==1?item.maxDurability():0;
         try {
@@ -263,29 +311,25 @@ public final class SaveStore {
 
     private static boolean validFurnaceSlots(Inventory.Slot coal,Inventory.Slot input,Inventory.Slot output) {
         if (!validMachineSlot(coal,ItemType.COAL)
-                || (input.item()!=null && input.item()!=ItemType.IRON && input.item()!=ItemType.SAND)
-                || (output.item()!=null && output.item()!=ItemType.IRON_INGOT && output.item()!=ItemType.GLASS)) return false;
-        return input.item()==null || output.item()==null
-                || (input.item()==ItemType.IRON && output.item()==ItemType.IRON_INGOT)
-                || (input.item()==ItemType.SAND && output.item()==ItemType.GLASS);
+                || (input.item()!=null && World.smeltingResult(input.item())==null)
+                || (output.item()!=null && !output.item().cookingProduct())) return false;
+        return input.item()==null || output.item()==null || World.smeltingResult(input.item())==output.item();
     }
 
     private static boolean validMachineRecipe(ItemType recipe) {
-        return recipe==ItemType.AXE_HEAD || recipe==ItemType.PICKAXE_HEAD || recipe==ItemType.SHOVEL_HEAD
-            || recipe==ItemType.IRON_AXE_HEAD || recipe==ItemType.IRON_PICKAXE_HEAD
-            || recipe==ItemType.IRON_SHOVEL_HEAD;
+        return World.stonecutterRecipe(recipe);
     }
 
-    private static Inventory.Snapshot readInventory(DataInputStream in,boolean hasDurability) throws IOException {
-        return new Inventory.Snapshot(readSlots(in, Inventory.SLOT_COUNT,hasDurability), readSlots(in, Inventory.CRAFT_SIZE,hasDurability));
+    private static Inventory.Snapshot readInventory(DataInputStream in,boolean hasDurability,boolean hasModItems) throws IOException {
+        return new Inventory.Snapshot(readSlots(in, Inventory.SLOT_COUNT,hasDurability,hasModItems), readSlots(in, Inventory.CRAFT_SIZE,hasDurability,hasModItems));
     }
 
-    private static List<Inventory.Slot> readSlots(DataInputStream in, int expectedSize,boolean hasDurability) throws IOException {
+    private static List<Inventory.Slot> readSlots(DataInputStream in, int expectedSize,boolean hasDurability,boolean hasModItems) throws IOException {
         int size = in.readInt();
         if (size != expectedSize) throw new IOException("Некорректный размер инвентаря");
         List<Inventory.Slot> slots = new ArrayList<>(size);
         for (int i = 0; i < size; i++) {
-            slots.add(readSlot(in,hasDurability));
+            slots.add(readSlot(in,hasDurability,hasModItems));
         }
         return slots;
     }

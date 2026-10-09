@@ -9,17 +9,20 @@ import com.jme3.scene.Node;
 import com.jme3.scene.shape.Quad;
 import com.jme3.texture.Texture2D;
 import com.jme3.texture.plugins.AWTLoader;
-import java.awt.Font;
-import java.awt.Graphics2D;
-import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 
-/** Native GUI scene with Russian text rendered using the JVM's logical font. */
+/** Native GUI scene with the original block-built Barnocraft alphabet. */
 public final class Hud {
     public final Node node = new Node("HUD");
     private final Node bar = new Node("Hotbar"), crosshair = new Node("Crosshair");
     private final Node commandOverlay = new Node("Command input");
     private final Node healthOverlay = new Node("Health");
+    private final Node notice = new Node("Notice");
+    private final Geometry damageTint;
+    private float noticeTime;
+    private float damageFlash;
+    private final Node modOverlay = new Node("Mod overlays");
+    private java.util.Map<String,java.util.Map<String,Object>> shownOverlays=java.util.Map.of();
     private final Geometry selection;
     private final Geometry[] names = new Geometry[Block.HOTBAR.length];
     private final Geometry[] icons = new Geometry[Block.HOTBAR.length];
@@ -36,9 +39,10 @@ public final class Hud {
 
     public Hud(AssetManager assets) {
         this.assets=assets;
-        node.attachChild(bar); node.attachChild(crosshair); node.attachChild(commandOverlay); node.attachChild(healthOverlay);
+        node.attachChild(modOverlay); node.attachChild(notice); node.attachChild(bar); node.attachChild(crosshair); node.attachChild(commandOverlay); node.attachChild(healthOverlay);
+        damageTint=rect(assets,1,1,new ColorRGBA(1f,.08f,.08f,0),0,0,25);node.attachChild(damageTint);
         commandOverlay.setCullHint(Node.CullHint.Always);
-        setHealth(Player.MAX_HEALTH);
+        setVitals(Player.MAX_HEALTH,Player.MAX_HUNGER);
         bar.attachChild(rect(assets, barWidth, 56, new ColorRGBA(0,0,0,.6f), -barWidth / 2, 0, 0));
         selection = rect(assets, 44, 44, ColorRGBA.White, 0, 6, 1);
         bar.attachChild(selection);
@@ -103,6 +107,47 @@ public final class Hud {
             }
         }
     }
+    public void modOverlays(java.util.Map<String,java.util.Map<String,Object>> overlays) {
+        modOverlay.setLocalTranslation(width-210,height-245,10);
+        if(shownOverlays.equals(overlays)) return;
+        shownOverlays=new java.util.LinkedHashMap<>(overlays);modOverlay.detachAllChildren();int row=0;
+        for(var data:overlays.values()) {
+            var pixels=Json.list(data.get("pixels"));float size=180;
+            modOverlay.attachChild(rect(assets,size+12,size+30,new ColorRGBA(.03f,.05f,.07f,.9f),-6,row-6,0));
+            Geometry g=rect(assets,size,size,ColorRGBA.White,0,row,1);g.getMaterial().setTexture("ColorMap",ModView.pixels(pixels));modOverlay.attachChild(g);
+            Geometry title=label(assets,Json.str(data,"title","Mod"),12);title.setLocalTranslation(2,row+size+3,2);modOverlay.attachChild(title);row-=220;
+        }
+    }
+    public java.util.Map<String,Object> modOverlayCell(float cursorX,float cursorY) {
+        float x=cursorX-(width-210),y=cursorY-(height-245);int rowOffset=0;
+        for(var entry:shownOverlays.entrySet()) {
+            int rows=Json.list(entry.getValue().get("pixels")).size();
+            int columns=Json.list(Json.list(entry.getValue().get("pixels")).get(0)).size();
+            if(x>=0 && x<180 && y>=rowOffset && y<rowOffset+180) {
+                int column=Math.min(columns-1,(int)(x/180*columns));
+                int row=rows-1-Math.min(rows-1,(int)((y-rowOffset)/180*rows));
+                return java.util.Map.of("id",entry.getKey(),"x",column,"y",row);
+            }
+            rowOffset-=220;
+        }
+        return null;
+    }
+    public void notify(String text) {
+        notice.detachAllChildren();
+        Geometry label=label(assets,text,17); int w=label.getUserData("width");
+        label.setLocalTranslation(-w/2f,0,1); notice.attachChild(label); noticeTime=4;
+    }
+    public void updateNotice(float tpf) {
+        notice.setLocalTranslation(width/2f,110,20);
+        noticeTime=Math.max(0,noticeTime-tpf);
+        if(noticeTime==0) notice.detachAllChildren();
+    }
+    public void damageFlash() { damageFlash=.32f; }
+    public void updateDamageFlash(float tpf) {
+        damageFlash=Math.max(0,damageFlash-tpf);
+        float alpha=.24f*damageFlash/.32f;
+        damageTint.getMaterial().setColor("Color",new ColorRGBA(1f,.08f,.08f,alpha));
+    }
     public void select(int index) {
         selectedIndex = index;
         selection.setLocalTranslation(slotStart + index * 48, 6, 1);
@@ -125,12 +170,20 @@ public final class Hud {
         commandOverlay.setLocalTranslation(16,Math.max(12,height-48),20);
     }
     public void setHealth(int health) {
+        setVitals(health,Player.MAX_HUNGER);
+    }
+    public void setVitals(int health,int hunger) { setVitals(health,hunger,false); }
+    private String shownVitals="";
+    public void setVitals(int health,int hunger,boolean creative) {
+        String text=creative?"Креатив · Полёт":"♥ "+health+"/"+Player.MAX_HEALTH+"   Голод "+hunger+"/"+Player.MAX_HUNGER;
+        if(text.equals(shownVitals))return;
+        shownVitals=text;
         healthOverlay.detachAllChildren();
-        Geometry backing=rect(assets,164,28,new ColorRGBA(.02f,.025f,.03f,.66f),0,0,0);
+        Geometry backing=rect(assets,268,30,new ColorRGBA(.02f,.025f,.03f,.72f),0,0,0);
         healthOverlay.attachChild(backing);
-        Geometry value=label(assets,"♥ "+health+" / "+Player.MAX_HEALTH,18);
-        value.getMaterial().setColor("Color",health<=6?new ColorRGBA(1f,.35f,.30f,1):new ColorRGBA(1f,.76f,.68f,1));
-        value.setLocalTranslation(8,4,1); healthOverlay.attachChild(value);
+        Geometry value=label(assets,text,13);
+        value.getMaterial().setColor("Color",health<=6 || hunger<=4?new ColorRGBA(1f,.43f,.34f,1):new ColorRGBA(1f,.82f,.69f,1));
+        value.setLocalTranslation(8,5,1); healthOverlay.attachChild(value);
         healthOverlay.setLocalTranslation(14,Math.max(12,height-40),20);
     }
     public void active(boolean active) {
@@ -144,22 +197,16 @@ public final class Hud {
         commandOverlay.setLocalTranslation(16,Math.max(12,h-48),20);
         healthOverlay.setLocalTranslation(14,Math.max(12,h-40),20);
         bar.setLocalScale(Math.min(1,w/(barWidth+20)));
+        damageTint.setLocalScale(w,h,1);
     }
     static Geometry label(AssetManager assets, String text, int size) {
-        Font font = new Font(Font.SANS_SERIF, Font.PLAIN, size);
-        BufferedImage probe = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = probe.createGraphics();
-        g.setFont(font);
-        int w = g.getFontMetrics().stringWidth(text) + 8, h = g.getFontMetrics().getHeight() + 4;
-        int baseline = g.getFontMetrics().getAscent() + 2;
-        g.dispose();
-        BufferedImage image = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
-        g = image.createGraphics(); g.setFont(font);
-        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-        g.setColor(java.awt.Color.BLACK); g.drawString(text, 5, baseline + 1);
-        g.setColor(java.awt.Color.WHITE); g.drawString(text, 4, baseline); g.dispose();
+        BufferedImage image=CubeFont.render(text,size);
+        int w=image.getWidth(),h=image.getHeight();
         Geometry result = rect(assets, w, h, ColorRGBA.White, 0, 0, 0);
-        result.getMaterial().setTexture("ColorMap", new Texture2D(new AWTLoader().load(image, true)));
+        Texture2D texture=new Texture2D(new AWTLoader().load(image,true));
+        texture.setMagFilter(com.jme3.texture.Texture.MagFilter.Nearest);
+        texture.setMinFilter(com.jme3.texture.Texture.MinFilter.NearestNoMipMaps);
+        result.getMaterial().setTexture("ColorMap",texture);
         result.setUserData("width", w);
         return result;
     }

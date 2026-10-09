@@ -19,7 +19,7 @@ class TerrainTest {
                     for (int y = 1; y < h; y++) {
                         Block block = world.get(x,y,z);
                         assertTrue(block.rock() || block == Block.AIR
-                            || block == Block.COAL_ORE || block == Block.IRON_ORE
+                            || block == Block.COAL_ORE || block == Block.IRON_ORE || block == Block.GOLD_ORE
                             || block == Block.LOG || block == Block.LEAVES,
                             "Unexpected subsurface block "+block+" at "+x+","+y+","+z+" under surface "+h);
                     }

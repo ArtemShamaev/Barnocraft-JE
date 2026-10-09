@@ -7,39 +7,87 @@ public final class Player {
     public static final float HALF_WIDTH = .3f, HEIGHT = 1.8f, EYE = 1.62f;
     public static final float REACH = 5f;
     public static final int MAX_HEALTH = 20;
+    public static final int MAX_HUNGER = 20;
     private static final float EPSILON = .00001f;
     public final Vector3f position = new Vector3f(40, 6.001f, 40);
     public float velocityY;
     public boolean grounded = true;
     private int health = MAX_HEALTH;
+    private int hunger = MAX_HUNGER;
+    private float hungerClock, starvationClock;
+    private float respawnX=-1,respawnY=-1,respawnZ=-1;
 
+    private boolean creative;
+    public boolean creative() { return creative; }
+    public void setCreative(boolean value) {
+        creative=value; velocityY=0; grounded=false;
+        hungerClock=0; starvationClock=0;
+        if(value) { health=MAX_HEALTH; hunger=MAX_HUNGER; }
+    }
     public int health() { return health; }
+    public int hunger() { return hunger; }
+    public float respawnX(){return respawnX;}
+    public float respawnY(){return respawnY;}
+    public float respawnZ(){return respawnZ;}
+    public void setRespawnPoint(Vector3f point){if(point==null)return;respawnX=point.x;respawnY=point.y;respawnZ=point.z;}
+    public void restoreRespawnPoint(float x,float y,float z){respawnX=x;respawnY=y;respawnZ=z;}
+    public void restoreHunger(int value) { hunger=Math.max(0,Math.min(MAX_HUNGER,value)); }
+    public boolean tickHunger(float dt) {
+        if(creative || health<=0 || dt<=0)return false;
+        hungerClock+=dt;
+        while(hungerClock>=35f && hunger>0){hungerClock-=35f;hunger--;}
+        if(hunger>0){starvationClock=0;return false;}
+        starvationClock+=dt;
+        if(starvationClock>=5f){starvationClock-=5f;return damage(1);}
+        return false;
+    }
     public boolean eatMutton(Inventory inventory,int slot) {
-        if(health>=MAX_HEALTH || !inventory.consumeAt(slot,ItemType.MUTTON)) return false;
-        restoreHealth(health+3); return true;
+        return eatFood(inventory,slot);
+    }
+    public boolean eatFood(Inventory inventory,int slot) {
+        ItemType food=inventory.itemAt(slot);int healing=food==null?0:food.foodValue(),nutrition=food==null?0:food.nutrition();
+        if((health>=MAX_HEALTH && hunger>=MAX_HUNGER) || (healing<=0 && nutrition<=0) || !inventory.consumeAt(slot,food))return false;
+        restoreHealth(health+healing);restoreHunger(hunger+nutrition);return true;
     }
     public boolean damage(int amount) {
-        if(amount<=0 || health<=0) return false;
+        if(creative || amount<=0 || health<=0) return false;
         health=Math.max(0,health-amount);
         return true;
     }
     public void restoreHealth(int value) { health=Math.max(0,Math.min(MAX_HEALTH,value)); }
     public boolean dead() { return health<=0; }
     public boolean inWater(World world) {
-        return world.get((int)Math.floor(position.x),(int)Math.floor(position.y+.1f),(int)Math.floor(position.z))==Block.WATER;
+        int x=floor(position.x),y=floor(position.y+.1f),z=floor(position.z);
+        return world.get(x,y,z)==Block.WATER && position.y+.1f<y+world.waterHeight(x,y,z);
     }
 
     public void update(World world, float dt, Vector3f movement, boolean jump) {
-        if (jump && grounded) { velocityY = 8; grounded = false; }
+        if(creative) {
+            velocityY=0; grounded=false;
+            int steps=Math.max(1,(int)Math.ceil(dt/.005f));
+            for(int i=0;i<steps;i++) {
+                move(world,0,movement.x*10*dt/steps);
+                move(world,1,movement.y*10*dt/steps);
+                move(world,2,movement.z*10*dt/steps);
+                position.x=Math.max(HALF_WIDTH,Math.min(world.width()-HALF_WIDTH,position.x));
+                position.z=Math.max(HALF_WIDTH,Math.min(world.depth()-HALF_WIDTH,position.z));
+                position.y=Math.max(0,Math.min(World.HEIGHT+80,position.y));
+            }
+            return;
+        }
+        boolean swimming=inWater(world);
+        if(swimming && jump)velocityY=2.8f;
+        if (!swimming && jump && grounded) { velocityY = 8; grounded = false; }
         int steps = Math.max(1, (int) Math.ceil(dt / .005f));
         float h = dt / steps;
         for (int i = 0; i < steps; i++) {
-            velocityY -= 25 * h;
+            velocityY -= (swimming?3:25) * h;
+            if(swimming)velocityY=Math.max(-1.2f,velocityY);
             float dy = velocityY * h;
             grounded = false;
             if (!move(world, 1, dy)) { grounded = dy < 0; velocityY = 0; }
-            moveHorizontal(world, 0, movement.x * 4 * h);
-            moveHorizontal(world, 2, movement.z * 4 * h);
+            moveHorizontal(world, 0, movement.x * (swimming?2:4) * h);
+            moveHorizontal(world, 2, movement.z * (swimming?2:4) * h);
             position.x = Math.max(HALF_WIDTH, Math.min(world.width() - HALF_WIDTH, position.x));
             position.z = Math.max(HALF_WIDTH, Math.min(world.depth() - HALF_WIDTH, position.z));
         }
@@ -84,6 +132,8 @@ public final class Player {
                     } else if (world.get(x,y,z)==Block.STAIRS) {
                         for (Door.Bounds box : Stairs.bounds(x,y,z,world.rotation(x,y,z)))
                             if (intersects(box)) return true;
+                    } else if (world.get(x,y,z).bed()) {
+                        if(intersects(new Door.Bounds(x,y,z,x+1,y+.6f,z+1))) return true;
                     } else if (world.get(x,y,z).solid()) return true;
         return false;
     }
@@ -99,6 +149,9 @@ public final class Player {
             && position.z - HALF_WIDTH + margin < z + 1 && position.z + HALF_WIDTH - margin > z;
     }
     public void respawn(World world) {
+        if(respawnX>=0 && world.validBedSpawn(respawnX,respawnY,respawnZ)) {
+            position.set(respawnX,respawnY,respawnZ);velocityY=0;grounded=false;health=MAX_HEALTH;return;
+        }
         position.set(world.width() / 2f + .5f, World.HEIGHT + 1, world.depth() / 2f + .5f);
         for (int y = World.HEIGHT - 1; y >= 0; y--) {
             if (world.get(floor(position.x), y, floor(position.z)).solid()) {

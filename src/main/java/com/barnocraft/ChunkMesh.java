@@ -8,7 +8,7 @@ import java.util.List;
 
 /** One mesh per texture in each chunk; hidden faces never reach the GPU. */
 public final class ChunkMesh {
-    public static final String[] TEXTURES = {"grass.png", "grass_2.png", "stone.png", "pesok.png", "tree_planks.png", "glass.png", "tree.png", "listia.png", "coal.png", "iron.png", "deeprock.png", "door.png", "stairs.png", "stonecutter.png", "furnace.png", "torch.png", "stone.png", "stonecutter.png", "furnace.png"};
+    public static final String[] TEXTURES = {"grass.png", "grass_2.png", "stone.png", "pesok.png", "tree_planks.png", "glass.png", "tree.png", "listia.png", "coal.png", "iron.png", "deeprock.png", "door.png", "stairs.png", "stonecutter.png", "furnace.png", "torch.png", "water.png", "casting_table.png", "welder.png", "lantern.png", "bed.png", "furnace_side.png", "pillow.png", "gold.png", "farmland.png", "chest.png"};
     private static final int[][] NORMALS = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
     private static final int[][] U = {{0,0,-1},{0,0,1},{1,0,0},{1,0,0},{1,0,0},{-1,0,0}};
     private static final int[][] V = {{0,1,0},{0,1,0},{0,0,-1},{0,0,1},{0,1,0},{0,1,0}};
@@ -22,15 +22,87 @@ public final class ChunkMesh {
             for (int z = cz * World.CHUNK; z < (cz + 1) * World.CHUNK; z++)
                 for (int y = 0; y < World.HEIGHT; y++) {
                     Block block = world.get(x, y, z);
+                    if (block==Block.WATER) {
+                        float height=world.waterHeight(x,y,z);
+                        if(world.get(x,y+1,z)==Block.AIR)builders[16].waterFace(x,y,z,2,0,height);
+                        for(int f:new int[]{0,1,4,5}) {
+                            int nx=x+NORMALS[f][0],nz=z+NORMALS[f][2];
+                            Block neighbor=world.get(nx,y,nz);
+                            float lower=neighbor==Block.WATER?world.waterHeight(nx,y,nz):0;
+                            if((neighbor==Block.AIR || neighbor==Block.WATER) && lower<height)
+                                builders[16].waterFace(x,y,z,f,lower,height);
+                        }
+                        if(world.get(x,y-1,z)==Block.AIR)builders[16].waterFace(x,y,z,3,0,height);
+                        continue;
+                    }
+                    if(block==Block.DOOR) {
+                        Door door=world.doorAt(x,y,z);
+                        if(door!=null) {
+                            Door.Bounds bounds=door.bounds();
+                            builders[11].cuboid(x,y,z,(bounds.minX()+bounds.maxX())/2-x,1,(bounds.minZ()+bounds.maxZ())/2-z,
+                                    bounds.maxX()-bounds.minX(),2,bounds.maxZ()-bounds.minZ(),0);
+                        }
+                        continue;
+                    }
+                    if(block==Block.LANTERN) {
+                        builders[19].cuboid(x,y,z,.5f,.10f,.5f,.44f,.16f,.44f,0);
+                        builders[19].cuboid(x,y,z,.5f,.38f,.5f,.32f,.42f,.32f,0);
+                        builders[19].cuboid(x,y,z,.5f,.63f,.5f,.44f,.10f,.44f,0);
+                        builders[21].cuboid(x,y,z,.5f,.75f,.5f,.16f,.16f,.08f,0);
+                        continue;
+                    }
+                    if(block.bed()) {
+                        int r=world.rotation(x,y,z);
+                        builders[4].cuboid(x,y,z,.5f,.27f,.5f,1,.16f,1,r);
+                        builders[20].cuboid(x,y,z,.5f,.46f,.5f,.94f,.22f,1,r);
+                        for(float bx:new float[]{.12f,.88f})
+                            builders[4].cuboid(x,y,z,bx,.12f,block==Block.BED?.12f:.88f,.15f,.24f,.15f,r);
+                        if(block==Block.BED_HEAD) builders[22].cuboid(x,y,z,.5f,.58f,.74f,.78f,.04f,.38f,r);
+                        continue;
+                    }
                     if (block==Block.TORCH) { builders[15].torch(x,y,z); continue; }
+                    if(block.crop()) {
+                        float height=.18f+block.cropStage()*.18f;
+                        builders[7].cuboid(x,y,z,.5f,height/2,.5f,.16f,height,.16f,0);
+                        if(block.cropStage()>=2)builders[7].cuboid(x,y,z,.5f,height,.5f,.42f,.16f,.42f,0);
+                        continue;
+                    }
+                    if(block==Block.FARMLAND) {
+                        builders[24].face(x,y,z,2,0,.5f,.5f,.5f,1);
+                        for(int f:new int[]{0,1,3,4,5})builders[3].face(x,y,z,f,0,.5f,.5f,.5f,1);
+                        continue;
+                    }
+                    if(block==Block.CHEST) {
+                        int firstChestVertex=builders[25].positions.size()/3;
+                        builders[25].cuboid(x,y,z,.5f,.45f,.5f,.88f,.78f,.78f,0);
+                        builders[25].cuboid(x,y,z,.5f,.77f,.5f,.92f,.18f,.82f,0);
+                        builders[25].cuboid(x,y,z,.5f,.45f,.105f,.12f,.16f,.025f,0);
+                        // Opaque inset models sample outside their light-blocking voxel.
+                        Builder chest=builders[25];
+                        for(int v=firstChestVertex;v<chest.positions.size()/3;v++) {
+                            int lx=x+chest.normals.get(v*3).intValue();
+                            int ly=y+chest.normals.get(v*3+1).intValue();
+                            int lz=z+chest.normals.get(v*3+2).intValue();
+                            chest.lights.set(v*2,lighting.sky(lx,ly,lz)/15f);
+                            chest.lights.set(v*2+1,lighting.block(lx,ly,lz)/15f);
+                        }
+                        continue;
+                    }
                     if ((!block.solid() && block != Block.WATER) || block.door()) continue;
                     int rotation = world.rotation(x,y,z);
+                    if (block==Block.STONECUTTER) {
+                        builders[2].cuboid(x,y,z,.5f,.30f,.5f,1,.60f,1,rotation);
+                        builders[13].cuboid(x,y,z,.5f,.70f,.5f,.10f,.58f,.70f,rotation);
+                        for(int tooth=0;tooth<5;tooth++)
+                            builders[13].cuboid(x,y,z,.5f,.98f,.22f+tooth*.14f,.14f,.04f,.07f,rotation);
+                        continue;
+                    }
                     if (block==Block.STAIRS) { builders[12].stairs(x,y,z,rotation); continue; }
                     for (int f = 0; f < 6; f++) {
                         int[] n = rotate(NORMALS[f],rotation);
                         Block neighbor = world.get(x+n[0], y+n[1], z+n[2]);
                         // Cutout leaves do not fully cover any neighboring face, even another leaf.
-                        boolean occluded = neighbor != Block.AIR && neighbor != Block.LEAVES && !neighbor.door() && neighbor != Block.STAIRS
+                        boolean occluded = neighbor != Block.AIR && neighbor != Block.WATER && neighbor != Block.LEAVES && neighbor != Block.CHEST && !neighbor.door() && neighbor != Block.STAIRS && neighbor != Block.STONECUTTER && !neighbor.bed() && neighbor != Block.LANTERN
                                 && (neighbor != Block.GLASS || block == Block.GLASS);
                         if (occluded || block==Block.WATER && neighbor==Block.WATER) continue;
                         int texture = switch (block) {
@@ -43,12 +115,15 @@ public final class ChunkMesh {
                             case LEAVES -> 7;
                             case COAL_ORE -> 8;
                             case IRON_ORE -> 9;
+                            case GOLD_ORE -> 23;
+                            case FARMLAND -> 3;
+                            case CHEST -> 25;
                             case DEEPSTONE -> 10;
                             case STONECUTTER -> 13;
-                            case FURNACE -> 14;
+                            case FURNACE -> f==4?14:21;
                             case WATER -> 16;
-                            case CASTING_TABLE -> 17;
-                            case WELDER -> 18;
+                            case CASTING_TABLE -> f==2?17:4;
+                            case WELDER -> f==2 || f==4?18:2;
                             default -> throw new IllegalStateException();
                         };
                         builders[texture].face(x,y,z,f,rotation,.5f,.5f,.5f,1);
@@ -70,6 +145,27 @@ public final class ChunkMesh {
         final List<Float> positions = new ArrayList<>(), normals = new ArrayList<>(), uv = new ArrayList<>(), lights = new ArrayList<>();
         final List<Integer> indices = new ArrayList<>();
         Builder(VoxelLighting lighting) { this.lighting=lighting; }
+        void cuboid(int x,int y,int z,float cx,float cy,float cz,float sx,float sy,float sz,int rotation) {
+            int start=positions.size();
+            for(int f=0;f<6;f++) face(x,y,z,f,0,.5f,.5f,.5f,1);
+            for(int i=start;i<positions.size();i+=3) {
+                float px=cx+(positions.get(i)-x-.5f)*sx;
+                float py=cy+(positions.get(i+1)-y-.5f)*sy;
+                float pz=cz+(positions.get(i+2)-z-.5f)*sz;
+                for(int turn=0;turn<rotation;turn++) { float old=px; px=1-pz; pz=old; }
+                positions.set(i,x+px); positions.set(i+1,y+py); positions.set(i+2,z+pz);
+                int[] n=rotate(new int[]{normals.get(i).intValue(),normals.get(i+1).intValue(),normals.get(i+2).intValue()},rotation);
+                for(int a=0;a<3;a++) normals.set(i+a,(float)n[a]);
+            }
+            for(int vertex=start/3;vertex<positions.size()/3;vertex+=4) lightFace(vertex);
+        }
+        void waterFace(int x,int y,int z,int face,float bottom,float top) {
+            int start=positions.size();
+            face(x,y,z,face,0,.5f,.5f,.5f,1);
+            for(int i=start+1;i<positions.size();i+=3)
+                positions.set(i,y+bottom+(positions.get(i)-y)*(top-bottom));
+            lightFace(start/3);
+        }
         void torch(int x,int y,int z) {
             // A torch is a small solid support with a visible flame.  The old
             // four one-sided pixels looked like an X-Ray marker and had no
@@ -103,10 +199,19 @@ public final class ChunkMesh {
                 positions.add(x+p[0]); positions.add(y+p[1]); positions.add(z+p[2]);
                 for (int a=0;a<3;a++) normals.add((float)normal[a]);
                 uv.add(u); uv.add(v);
-                lights.add(lighting.sky(x+normal[0],y+normal[1],z+normal[2])/15f);
-                lights.add(lighting.block(x+normal[0],y+normal[1],z+normal[2])/15f);
+                lights.add(0f); lights.add(0f);
             }
+            lightFace(base);
             for (int i:new int[]{0,1,2,0,2,3}) indices.add(base+i);
+        }
+        private void lightFace(int vertex) {
+            float[] center=new float[3];
+            for(int v=0;v<4;v++) for(int axis=0;axis<3;axis++) center[axis]+=positions.get((vertex+v)*3+axis)*.25f;
+            int[] cell=new int[3];
+            for(int axis=0;axis<3;axis++) cell[axis]=(int)Math.floor(center[axis]+normals.get(vertex*3+axis)*.002f);
+            float sky=lighting.sky(cell[0],cell[1],cell[2])/15f;
+            float block=lighting.block(cell[0],cell[1],cell[2])/15f;
+            for(int v=0;v<4;v++) { lights.set((vertex+v)*2,sky); lights.set((vertex+v)*2+1,block); }
         }
         Mesh mesh() {
             if (indices.isEmpty()) return null;

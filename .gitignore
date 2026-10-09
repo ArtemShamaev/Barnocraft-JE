@@ -6,3 +6,8 @@ hs_err_pid*
 *.exe
 
 /saves/
+
+# Python mod runtime output
+__pycache__/
+*.pyc
+mods/**/mod.log

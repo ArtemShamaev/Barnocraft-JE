@@ -29,6 +29,15 @@ class ChunkMeshTest {
         assertEquals(10, meshes[5].getTriangleCount());
         assertEquals(512 + 12, meshes[2].getTriangleCount());
     }
+    @Test void chestUsesChestTextureAndDoesNotHideGroundSurface() {
+        World w = World.flat();
+        w.set(20,9,20,Block.STONE);
+        int stoneTriangles = ChunkMesh.build(w,1,1)[2].getTriangleCount();
+        w.set(20,10,20,Block.CHEST);
+        Mesh[] meshes = ChunkMesh.build(w,1,1);
+        assertEquals(stoneTriangles,meshes[2].getTriangleCount());
+        assertEquals(36,meshes[25].getTriangleCount());
+    }
     @Test void trianglesFaceOutwards() {
         Mesh[] meshes = ChunkMesh.build(World.flat(),0,0);
         for (Mesh mesh : meshes) {

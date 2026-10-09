@@ -1,6 +1,15 @@
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/ChestRenderingTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/ChunkMeshTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/CreativeTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/CubeFontTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/DeepstoneTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/DoorTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/EquipmentTexturesTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/FurnitureTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/GoldTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/MobTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/ModApiTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/PartialLightingTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/PlayerTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/RotationTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/SaveStoreTest.java
@@ -9,4 +18,6 @@
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/TerrainTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/TreeGenerationTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/UndergroundTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/WaterPhysicsTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/WaterTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/WorldTest.java

@@ -34,10 +34,10 @@ final class Metalworking {
         return slot==FUEL?item==ItemType.COAL:slot==0 && item==ItemType.IRON;
     }
     static ItemType moldFor(ItemType head) {
-        return switch(head) {
-            case IRON_AXE_HEAD -> ItemType.AXE_MOLD;
-            case IRON_PICKAXE_HEAD -> ItemType.PICKAXE_MOLD;
-            case IRON_SHOVEL_HEAD -> ItemType.SHOVEL_MOLD;
+        return switch (head.name()) {
+            case "IRON_AXE_HEAD" -> ItemType.AXE_MOLD;
+            case "IRON_PICKAXE_HEAD" -> ItemType.PICKAXE_MOLD;
+            case "IRON_SHOVEL_HEAD" -> ItemType.SHOVEL_MOLD;
             default -> null;
         };
     }
@@ -46,14 +46,14 @@ final class Metalworking {
             return state.at(FUEL).count()>=1 && state.at(0).item()==ItemType.IRON && state.at(0).count()>=3?state.recipe():null;
         }
         // Each occupied grid cell contributes one item; stacked items never replace separate cells.
-        EnumMap<ItemType,Integer> counts=new EnumMap<>(ItemType.class);
+        java.util.Map<ItemType,Integer> counts=new java.util.HashMap<>();
         for(int i=0;i<9;i++) if(state.at(i).item()!=null) counts.merge(state.at(i).item(),1,Integer::sum);
         if(counts.equals(Map.of(ItemType.BUCKET_MOLD,3,ItemType.IRON_INGOT,3,ItemType.COAL,1))) return ItemType.BUCKET;
         for(ItemType head:List.of(ItemType.IRON_AXE_HEAD,ItemType.IRON_PICKAXE_HEAD,ItemType.IRON_SHOVEL_HEAD)) {
             if(counts.equals(Map.of(moldFor(head),3,ItemType.IRON_INGOT,3,ItemType.COAL,1))) return head;
-            if(counts.equals(Map.of(head,1,ItemType.STICK,1))) return switch(head) {
-                case IRON_AXE_HEAD -> ItemType.IRON_AXE;
-                case IRON_PICKAXE_HEAD -> ItemType.IRON_PICKAXE;
+            if(counts.equals(Map.of(head,1,ItemType.STICK,1))) return switch (head.name()) {
+                case "IRON_AXE_HEAD" -> ItemType.IRON_AXE;
+                case "IRON_PICKAXE_HEAD" -> ItemType.IRON_PICKAXE;
                 default -> ItemType.IRON_SHOVEL;
             };
         }

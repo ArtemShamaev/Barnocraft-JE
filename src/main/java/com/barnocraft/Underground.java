@@ -6,8 +6,8 @@ import java.util.Random;
 
 /** Seeded tunnels, surface entrances and clustered ores exposed along cave walls. */
 final class Underground {
-    static final double COAL_CHANCE = .020, IRON_CHANCE = .016;
-    static final int COAL_MIN_DEPTH = 2, IRON_MIN_DEPTH = 4;
+    static final double COAL_CHANCE = .020, IRON_CHANCE = .016, GOLD_CHANCE = .008;
+    static final int COAL_MIN_DEPTH = 2, IRON_MIN_DEPTH = 4, GOLD_MIN_DEPTH = 8;
     private static final int[][] SIDES = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
 
     private Underground() {}
@@ -46,6 +46,12 @@ final class Underground {
             }
         }
         generateOres(world, new Random(seed ^ 0x4F524553L));
+        // Separate stream keeps existing coal and iron deposits stable in saved worlds.
+        Random gold=new Random(seed ^ 0x474F4C44L);
+        for(int x=1;x<world.width()-1;x++) for(int z=1;z<world.depth()-1;z++)
+            for(int y=1;y<=world.groundHeight(x,z)-GOLD_MIN_DEPTH;y++)
+                if(world.get(x,y,z).rock() && caveWall(world,x,y,z) && gold.nextDouble()<GOLD_CHANCE)
+                    vein(world,gold,x,y,z,Block.GOLD_ORE,GOLD_MIN_DEPTH,3+gold.nextInt(4));
     }
 
     private static void carve(VoxelVolume world, double cx, double cy, double cz, double radius, boolean entrance) {

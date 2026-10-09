@@ -1,0 +1,13 @@
+MaterialDef Atmosphere {
+    MaterialParameters {
+        Vector3 SunDirection
+        Float Daylight
+        Float Time
+        Color Horizon
+    }
+    Technique {
+        VertexShader GLSL100: MatDefs/Atmosphere.vert
+        FragmentShader GLSL100: MatDefs/Atmosphere.frag
+        WorldParameters { WorldViewProjectionMatrix }
+    }
+}

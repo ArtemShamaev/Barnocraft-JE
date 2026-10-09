@@ -12,8 +12,15 @@ final class Inventory {
     static final int CRAFT_SIZE = 4;
     private final List<Slot> slots = new ArrayList<>(SLOT_COUNT);
     private final List<Slot> craft = new ArrayList<>(CRAFT_SIZE);
-    private final EnumMap<ItemType,Integer> lastLeftover = new EnumMap<>(ItemType.class);
+    private final java.util.Map<ItemType,Integer> lastLeftover = new java.util.HashMap<>();
 
+    private boolean creative;
+    boolean creative() { return creative; }
+    void setCreative(boolean value) { creative=value; }
+    void creativePick(int index,ItemType item) {
+        if(!creative || index<0 || index>=HOTBAR_SIZE || item==null || item.retired())return;
+        slots.set(index,new Slot(item,item.stackLimit()));
+    }
     Inventory() {
         for (int i = 0; i < SLOT_COUNT; i++) slots.add(new Slot(null, 0));
         for (int i = 0; i < CRAFT_SIZE; i++) craft.add(new Slot(null, 0));
@@ -45,10 +52,13 @@ final class Inventory {
         if (snapshot == null) snapshot = emptySnapshot();
         validate(snapshot.slots());
         validate(snapshot.craft());
-        for (int i = 0; i < SLOT_COUNT; i++) slots.set(i, snapshot.slots().get(i));
-        for (int i = 0; i < CRAFT_SIZE; i++) craft.set(i, snapshot.craft().get(i));
+        for (int i = 0; i < SLOT_COUNT; i++) slots.set(i, restoreSlot(snapshot.slots().get(i)));
+        for (int i = 0; i < CRAFT_SIZE; i++) craft.set(i, restoreSlot(snapshot.craft().get(i)));
     }
 
+    private static Slot restoreSlot(Slot slot) {
+        return slot.item()!=null && slot.item().retired()?new Slot(ItemType.IRON_INGOT,slot.count()):slot;
+    }
     static Snapshot emptySnapshot() {
         return new Snapshot(java.util.Collections.nCopies(SLOT_COUNT, new Slot(null, 0)),
                 java.util.Collections.nCopies(CRAFT_SIZE, new Slot(null, 0)));
@@ -84,6 +94,7 @@ final class Inventory {
         if (index < 0 || index >= slots.size()) return false;
         Slot slot = slots.get(index);
         if (expected == null || slot.item() != expected || slot.count() == 0) return false;
+        if(creative)return true;
         slots.set(index, slot.count() == 1 ? new Slot(null, 0) : new Slot(expected, slot.count() - 1));
         return true;
     }
@@ -105,6 +116,7 @@ final class Inventory {
     }
 
     boolean damageToolAt(int index) {
+        if(creative)return false;
         if (index<0 || index>=slots.size()) return false;
         Slot slot=slots.get(index);
         if (slot.item()==null || !slot.item().tool() || slot.durability()==0) return false;
@@ -152,24 +164,27 @@ final class Inventory {
 
     static Block toBlock(ItemType type) {
         if (type == null) return null;
-        return switch (type) {
-            case DIRT -> Block.GRASS;
-            case STONE -> Block.STONE;
-            case SAND -> Block.SAND;
-            case PLANK -> Block.PLANKS;
-            case GLASS -> Block.GLASS;
-            case WOOD -> Block.LOG;
-            case COAL -> Block.COAL_ORE;
-            case IRON -> Block.IRON_ORE;
-            case DEEPSTONE -> Block.DEEPSTONE;
-            case DOOR -> Block.DOOR;
-            case STAIRS -> Block.STAIRS;
-            case STONECUTTER -> Block.STONECUTTER;
-            case FURNACE -> Block.FURNACE;
-            case TORCH -> Block.TORCH;
-            case WATER -> Block.WATER;
-            case CASTING_TABLE -> Block.CASTING_TABLE;
-            case WELDER -> Block.WELDER;
+        return switch (type.name()) {
+            case "DIRT" -> Block.GRASS;
+            case "STONE" -> Block.STONE;
+            case "SAND" -> Block.SAND;
+            case "PLANK" -> Block.PLANKS;
+            case "GLASS" -> Block.GLASS;
+            case "WOOD" -> Block.LOG;
+            case "COAL" -> Block.COAL_ORE;
+            case "IRON" -> Block.IRON_ORE;
+            case "GOLD" -> Block.GOLD_ORE;
+            case "ROTATOR" -> Block.ROTATOR;
+            case "DEEPSTONE" -> Block.DEEPSTONE;
+            case "DOOR" -> Block.DOOR;
+            case "STAIRS" -> Block.STAIRS;
+            case "STONECUTTER" -> Block.STONECUTTER;
+            case "FURNACE" -> Block.FURNACE;
+            case "CHEST" -> Block.CHEST;
+            case "LANTERN" -> Block.LANTERN;
+            case "BED" -> Block.BED;
+            case "WATER" -> Block.WATER;
+
             default -> null;
         };
     }
@@ -215,10 +230,8 @@ final class Inventory {
 
     int addBlock(Block block, int amount) {
         if (block == Block.LEAVES) {
-            if (Math.random() < 0.10) {
-                int leftover = add(ItemType.STICK, 1);
-                if (leftover == 0) return 0;
-            }
+            if (Math.random() < 0.10) add(ItemType.STICK, 1);
+            if(Math.random()<.16)add(ItemType.WHEAT_SEEDS,1);
             return 0;
         }
 
@@ -231,6 +244,7 @@ final class Inventory {
             case LOG -> ItemType.WOOD;
             case COAL_ORE -> ItemType.COAL;
             case IRON_ORE -> ItemType.IRON;
+            case GOLD_ORE -> ItemType.GOLD;
             case DEEPSTONE -> ItemType.DEEPSTONE;
             case DOOR -> ItemType.DOOR;
             case DOOR_TOP -> ItemType.DOOR;
@@ -238,6 +252,8 @@ final class Inventory {
             case STONECUTTER -> ItemType.STONECUTTER;
             case FURNACE -> ItemType.FURNACE;
             case TORCH -> ItemType.TORCH;
+            case LANTERN -> ItemType.LANTERN;
+            case BED, BED_HEAD -> ItemType.BED;
             default -> null;
         };
         if (item == null) return amount;
@@ -262,8 +278,19 @@ final class Inventory {
     }
 
     ItemType craftPreview() {
+        ItemType modRecipe=matchingModRecipe();if(modRecipe!=null)return modRecipe;
         int occupied = 0;
         for (Slot slot : craft) if (slot.item() != null) occupied++;
+        if(occupied==4 && craft.stream().filter(slot->slot.item()==ItemType.PLANK).count()==3
+            && craft.stream().anyMatch(slot->slot.item()==ItemType.STICK))return ItemType.CHEST;
+        if(occupied==4 && craft.stream().filter(slot->slot.item()==ItemType.PLANK).count()==3
+            && craft.stream().anyMatch(slot->slot.item()==ItemType.STICK))return ItemType.CHEST;
+        if(occupied==3 && craft.stream().filter(slot->slot.item()==ItemType.WHEAT).count()==3)return ItemType.BREAD;
+        if(occupied==4 && craft.stream().filter(slot->slot.item()==ItemType.PLANK).count()==2
+            && craft.stream().filter(slot->slot.item()==ItemType.STICK).count()==2)return ItemType.STONE_HOE;
+        int plankCount=craft.stream().filter(slot->slot.item()==ItemType.PLANK).mapToInt(Slot::count).sum();
+        if(occupied<=2 && occupied>0 && occupied==craft.stream().filter(slot->slot.item()==ItemType.PLANK).count() && plankCount==2)return ItemType.STICK;
+        if (occupied == 1 && craft.stream().anyMatch(slot -> slot.item() == ItemType.GOLD_INGOT)) return ItemType.ROTATOR;
         if (occupied == 1 && craft.stream().anyMatch(slot -> slot.item() == ItemType.STICK)) return ItemType.SHARP_STICK;
         if (occupied == 2 && craft.stream().anyMatch(slot -> slot.item()==ItemType.COAL)
             && craft.stream().anyMatch(slot -> slot.item()==ItemType.STICK)) return ItemType.TORCH;
@@ -278,27 +305,47 @@ final class Inventory {
             if (craft.stream().anyMatch(slot -> slot.item() == ItemType.IRON_AXE_HEAD)) return ItemType.IRON_AXE;
             if (craft.stream().anyMatch(slot -> slot.item() == ItemType.IRON_PICKAXE_HEAD)) return ItemType.IRON_PICKAXE;
             if (craft.stream().anyMatch(slot -> slot.item() == ItemType.IRON_SHOVEL_HEAD)) return ItemType.IRON_SHOVEL;
+            if (craft.stream().anyMatch(slot -> slot.item() == ItemType.GOLD_AXE_HEAD)) return ItemType.GOLD_AXE;
+            if (craft.stream().anyMatch(slot -> slot.item() == ItemType.GOLD_PICKAXE_HEAD)) return ItemType.GOLD_PICKAXE;
+            if (craft.stream().anyMatch(slot -> slot.item() == ItemType.GOLD_SHOVEL_HEAD)) return ItemType.GOLD_SHOVEL;
         }
         if (craft.get(0).item() == ItemType.STONE && craft.get(1).item() == ItemType.STONE
                 && craft.get(2).item() == ItemType.PLANK && craft.get(3).item() == ItemType.PLANK) {
             return ItemType.STONECUTTER;
         }
-        if (craft.get(0).item() == ItemType.IRON_INGOT && craft.get(1).item() == ItemType.IRON_INGOT
-                && craft.get(2).item() == ItemType.PLANK && craft.get(3).item() == ItemType.PLANK) {
-            return ItemType.CASTING_TABLE;
-        }
-        if (craft.get(0).item() == ItemType.IRON_INGOT && craft.get(1).item() == ItemType.STICK
-                && craft.get(2).item() == ItemType.WOOD && craft.get(3).item() == ItemType.WOOD) {
-            return ItemType.WELDER;
-        }
+        if (occupied==4 && craft.stream().filter(slot -> slot.item()==ItemType.WOOL).count()==2
+                && craft.stream().filter(slot -> slot.item()==ItemType.PLANK).count()==2) return ItemType.BED;
+        if (occupied==3 && craft.stream().anyMatch(slot -> slot.item()==ItemType.TORCH)
+                && craft.stream().anyMatch(slot -> slot.item()==ItemType.GLASS)
+                && craft.stream().anyMatch(slot -> slot.item()==ItemType.IRON_INGOT)) return ItemType.LANTERN;
+        if (occupied==3 && craft.stream().filter(slot -> slot.item()==ItemType.IRON_INGOT).count()==3) return ItemType.BUCKET;
         return null;
     }
 
     boolean craftFromGrid() {
         ItemType result = craftPreview();
         if (result == null) return false;
-        int outputCount=result==ItemType.PLANK?4:1;
+        ItemType.CraftRecipe modRecipe=matchingModRecipeDefinition();
+        int outputCount=modRecipe!=null?modRecipe.count():result==ItemType.PLANK?4:result==ItemType.STICK?16:1;
         if (!canAdd(result,outputCount)) return false;
+        if(modRecipe!=null) {
+            for(var ingredient:modRecipe.ingredients().entrySet()) {
+                int remaining=ingredient.getValue();
+                for(int i=0;i<craft.size() && remaining>0;i++) {
+                    Slot slot=craft.get(i);if(slot.item()!=ingredient.getKey())continue;
+                    int used=Math.min(remaining,slot.count());craft.set(i,slot.count()==used?new Slot(null,0):new Slot(slot.item(),slot.count()-used));remaining-=used;
+                }
+            }
+            add(result,outputCount);return true;
+        }
+        if(result==ItemType.STICK) {
+            int remaining=2;
+            for(int i=0;i<craft.size() && remaining>0;i++)if(craft.get(i).item()==ItemType.PLANK) {
+                Slot slot=craft.get(i);int used=Math.min(remaining,slot.count());
+                craft.set(i,slot.count()==used?new Slot(null,0):new Slot(ItemType.PLANK,slot.count()-used));remaining-=used;
+            }
+            add(result,outputCount);return true;
+        }
         for (int i = 0; i < craft.size(); i++) {
             Slot slot = craft.get(i);
             if (slot.item() == null) continue;
@@ -306,6 +353,23 @@ final class Inventory {
         }
         add(result,outputCount);
         return true;
+    }
+
+    private ItemType matchingModRecipe() {
+        ItemType.CraftRecipe recipe=matchingModRecipeDefinition();return recipe==null?null:recipe.result();
+    }
+    private ItemType.CraftRecipe matchingModRecipeDefinition() {
+        for(ItemType.CraftRecipe recipe:ItemType.craftRecipes()) {
+            java.util.Map<ItemType,Integer> present=new java.util.HashMap<>();int occupied=0;
+            for(Slot slot:craft)if(slot.item()!=null){occupied++;present.merge(slot.item(),slot.count(),Integer::sum);}
+            if(occupied==recipe.ingredients().size() && present.equals(recipe.ingredients()))return recipe;
+        }
+        return null;
+    }
+    int craftPreviewCount() {
+        ItemType result=craftPreview();if(result==null)return 0;
+        ItemType.CraftRecipe recipe=matchingModRecipeDefinition();
+        return recipe!=null?recipe.count():result==ItemType.PLANK?4:result==ItemType.STICK?16:1;
     }
 
     private boolean canAdd(ItemType type,int amount) {

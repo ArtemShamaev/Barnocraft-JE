@@ -29,7 +29,7 @@ final class GameOptions {
         p.setProperty("texturePack",Integer.toString(texturePack));
         Path temp = Files.createTempFile(path.getParent(),"settings-",".tmp");
         try {
-            try (var out = Files.newOutputStream(temp)) { p.store(out,"Barnocraft"); }
+            try (var out = Files.newOutputStream(temp)) { p.store(out,"Barnocraft Java Edition"); }
             SaveStore.replace(temp,path);
         } finally { Files.deleteIfExists(temp); }
     }

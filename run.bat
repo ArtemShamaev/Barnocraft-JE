@@ -1,5 +1,9 @@
 @echo off
+setlocal
 chcp 65001 > nul
-title Запуск Barnocraft
-java -jar target\barnocraft.jar
+title Barnocraft Java Edition
+cd /d "%~dp0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0run.ps1" %*
+set "RESULT=%ERRORLEVEL%"
 pause
+exit /b %RESULT%

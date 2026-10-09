@@ -52,6 +52,43 @@ class SaveStoreTest {
         assertEquals(ItemType.IRON,restored.craftItemAt(2));
         assertEquals(2,restored.craftCountAt(2));
     }
+    @Test void hungerAndFarmBlocksSurviveSaveAndLoad() throws Exception {
+        SaveStore saves=new SaveStore(directory);World world=new World(42);
+        world.set(20,5,20,Block.GRASS);world.set(20,6,20,Block.AIR);
+        assertTrue(world.till(20,5,20));assertTrue(world.plantCrop(20,5,20));world.updateCrops(60);
+        SaveStore.Pose pose=new SaveStore.Pose(40,6,40,0,0,1,13,7);
+        saves.save(1,world.snapshot(),pose);
+        SaveStore.Saved loaded=saves.load(1);
+        assertEquals(7,loaded.pose().hunger());assertEquals(Block.FARMLAND,loaded.world().get(20,5,20));
+        assertEquals(Block.CROP_2,loaded.world().get(20,6,20));
+        assertNotNull(loaded.world().raycast(new com.jme3.math.Vector3f(20.5f,6.1f,18),
+            com.jme3.math.Vector3f.UNIT_Z,5),"Crop blocks must be targetable despite not blocking movement");
+        Inventory harvest=new Inventory();
+        for(int i=0;i<3;i++)loaded.world().updateCrops(30);
+        assertEquals(Block.CROP_3,loaded.world().get(20,6,20));
+        assertTrue(loaded.world().harvestCrop(20,6,20,harvest));
+        assertEquals(1,harvest.count(ItemType.WHEAT));assertTrue(harvest.count(ItemType.WHEAT_SEEDS)>=1);
+        assertEquals(Block.FARMLAND,loaded.world().get(20,5,20));assertEquals(Block.AIR,loaded.world().get(20,6,20));
+    }
+    @Test void chestContentsPersistAndDeathChestOpensOnlyOnce() throws Exception {
+        SaveStore saves=new SaveStore(directory);World world=new World(51);Inventory inventory=new Inventory();
+        assertTrue(world.set(20,30,20,Block.CHEST));inventory.add(ItemType.BREAD,12);
+        assertTrue(world.moveChestItem(20,30,20,4,inventory,0,false,false));
+        saves.save(1,world.snapshot(),new SaveStore.Pose(40,30,40,0,0,0),inventory.snapshot());
+        World loaded=saves.load(1).world();assertEquals(12,loaded.chestAt(20,30,20).slots().get(4).count());
+        Inventory recovered=new Inventory();assertTrue(loaded.openChest(20,30,20));
+        assertTrue(loaded.moveChestItem(20,30,20,4,recovered,0,true,false));assertEquals(12,recovered.count(ItemType.BREAD));
+        assertTrue(loaded.chestAt(20,30,20)!=null,"Ordinary chest remains reusable");
+
+        Inventory lost=new Inventory();lost.add(ItemType.IRON,3);loaded.createDeathChest(lost,new com.jme3.math.Vector3f(30.5f,31,30.5f));
+        assertEquals(0,lost.count(ItemType.IRON));
+        var deathChest=loaded.chests().entrySet().stream().filter(e->e.getValue().deathCache()).findFirst().orElseThrow();
+        int key=deathChest.getKey(),z=key%loaded.depth(),v=key/loaded.depth(),x=v%loaded.width(),y=v/loaded.width();
+        assertTrue(loaded.openChest(x,y,z));
+        saves.save(2,loaded.snapshot(),new SaveStore.Pose(40,30,40,0,0,0));
+        loaded=saves.load(2).world();assertFalse(loaded.openChest(x,y,z),"An opened death chest cannot be claimed twice");
+        loaded.closeChest(x,y,z);assertEquals(Block.AIR,loaded.get(x,y,z));
+    }
     @Test void stonecutterSlotsCraftAndPersist() throws Exception {
         SaveStore saves=new SaveStore(directory); World world=new World(42); Inventory inventory=new Inventory();
         assertTrue(world.set(12,8,14,Block.STONECUTTER));
@@ -149,6 +186,17 @@ class SaveStoreTest {
         SaveStore.Pose pose=new SaveStore.Pose(40,20,40,0,0,1);
         saves.save(1,world.snapshot(),pose,Inventory.emptySnapshot());
         assertTrue(saves.load(1).world().sheep().contains(sheep));
+    }
+    @Test void bedRespawnPointPersistsWithPlayerPose() throws Exception {
+        SaveStore saves=new SaveStore(directory);World world=new World(42);Player player=new Player();
+        for(int x=18;x<=21;x++)for(int z=18;z<=21;z++){world.set(x,30,z,Block.AIR);world.set(x,29,z,Block.STONE);}
+        assertTrue(world.placeBed(20,30,20,0,player));player.setRespawnPoint(world.bedSpawn(20,30,20));
+        SaveStore.Pose pose=new SaveStore.Pose(40,30,40,0,0,0,12,8,player.respawnX(),player.respawnY(),player.respawnZ());
+        saves.save(1,world.snapshot(),pose);SaveStore.Saved loaded=saves.load(1);
+        assertEquals(pose,loaded.pose());
+        Player restored=new Player();restored.restoreRespawnPoint(loaded.pose().respawnX(),loaded.pose().respawnY(),loaded.pose().respawnZ());
+        restored.damage(Player.MAX_HEALTH);restored.respawn(loaded.world());
+        assertEquals(20.5f,restored.position.x,.001f);assertEquals(30.61f,restored.position.y,.02f);
     }
     @Test void orientationsRoundTripAndOldVersionStillLoads() throws Exception {
         SaveStore saves=new SaveStore(directory); World world=new World(42); Player player=new Player();

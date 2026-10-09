@@ -46,4 +46,41 @@ class PlayerTest {
         assertTrue(p.intersects(40,6,40)); assertTrue(p.intersects(39,7,39));
         assertFalse(p.intersects(40,5,40)); assertFalse(p.intersects(41,6,40));
     }
+    @Test void hungerDrainsStarvationHurtsAndFoodRestoresBothMeters() {
+        Player player=new Player();
+        player.tickHunger(34);assertEquals(Player.MAX_HUNGER,player.hunger());
+        player.tickHunger(1);assertEquals(Player.MAX_HUNGER-1,player.hunger());
+        player.restoreHunger(0);assertFalse(player.tickHunger(4.9f));
+        assertTrue(player.tickHunger(.1f));assertEquals(Player.MAX_HEALTH-1,player.health());
+        Inventory inventory=new Inventory();inventory.add(ItemType.BREAD);
+        assertTrue(player.eatFood(inventory,0));
+        assertEquals(Player.MAX_HEALTH,player.health());assertEquals(7,player.hunger());
+    }
+    @Test void wheatCraftsBreadAndStoneHoe() {
+        Inventory bread=new Inventory();bread.add(ItemType.WHEAT,3);
+        for(int i=0;i<3;i++)assertTrue(bread.moveRef("slot:0","craft:"+i,true));
+        assertEquals(ItemType.BREAD,bread.craftPreview());assertTrue(bread.craftFromGrid());
+        assertEquals(1,bread.count(ItemType.BREAD));assertEquals(0,bread.count(ItemType.WHEAT));
+
+        Inventory hoe=new Inventory();hoe.add(ItemType.PLANK,2);hoe.add(ItemType.STICK,2);
+        for(int i=0;i<2;i++)assertTrue(hoe.moveRef("slot:0","craft:"+i,true));
+        for(int i=0;i<2;i++)assertTrue(hoe.moveRef("slot:1","craft:"+(i+2),true));
+        assertEquals(ItemType.STONE_HOE,hoe.craftPreview());assertTrue(hoe.craftFromGrid());
+        assertEquals(1,hoe.count(ItemType.STONE_HOE));
+    }
+    @Test void respawnUsesLastUsedBedAndFallsBackWhenBedIsGone() {
+        World world=World.flat();Player player=new Player();
+        assertTrue(world.placeBed(20,6,20,0,player));player.setRespawnPoint(world.bedSpawn(20,6,20));
+        player.damage(Player.MAX_HEALTH);player.respawn(world);
+        assertEquals(20.5f,player.position.x,.001f);assertEquals(6.61f,player.position.y,.02f);
+        world.set(20,6,20,Block.AIR);player.damage(Player.MAX_HEALTH);player.respawn(world);
+        assertEquals(world.width()/2f+.5f,player.position.x,.001f);
+    }
+    @Test void chestRecipeProducesPlaceableStorageBlock() {
+        Inventory inventory=new Inventory();inventory.add(ItemType.PLANK,3);inventory.add(ItemType.STICK);
+        for(int i=0;i<3;i++)assertTrue(inventory.moveRef("slot:0","craft:"+i,true));
+        assertTrue(inventory.moveRef("slot:1","craft:3",true));
+        assertEquals(ItemType.CHEST,inventory.craftPreview());assertTrue(inventory.craftFromGrid());
+        assertEquals(1,inventory.count(ItemType.CHEST));assertEquals(Block.CHEST,Inventory.toBlock(ItemType.CHEST));
+    }
 }

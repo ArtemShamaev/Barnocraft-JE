@@ -12,10 +12,10 @@ final class VoxelLighting {
             boolean exposed=true;
             for(int y=World.HEIGHT-1;y>=0;y--) {
                 int i=index(x,y,z); Block b=world.get(ox+x,y,oz+z);
-                open[i]=!b.solid() || b==Block.GLASS || b==Block.LEAVES;
+                open[i]=!b.blocksLight();
                 if(!open[i]) exposed=false;
                 if(exposed) sky[i]=15;
-                if(b==Block.TORCH) block[i]=14;
+                if(b==Block.TORCH || b==Block.LANTERN) block[i]=14;
             }
         }
         spread(sky); spread(block);
