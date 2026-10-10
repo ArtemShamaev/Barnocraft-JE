@@ -19,8 +19,15 @@ import java.util.*;
 import java.util.concurrent.*;
 
 public final class Barnocraft extends SimpleApplication {
-    private enum Screen { MAIN, WORLDS, MODS, CREATE_WORLD, DELETE_WORLD, SETTINGS, PAUSE, INVENTORY, STONECUTTER, FURNACE, CHEST, LOADING, GAME }
+    private enum Screen { MAIN, WORLDS, MULTIPLAYER, OPEN_NETWORK, MODS, CREATE_WORLD, DELETE_WORLD, SETTINGS, PAUSE, INVENTORY, STONECUTTER, FURNACE, CHEST, LOADING, GAME }
     private World world;
+    private Multiplayer multiplayer;
+    private Future<NetworkSession> connecting;
+    private int characterSkin;
+    private final StringBuilder networkAddress=new StringBuilder("localhost"),networkPort=new StringBuilder("25565");
+    private boolean addressFocused=true;
+    private final Map<Integer,PlayerModel> remoteModels=new HashMap<>();
+
     private final Player player = new Player();
     private final boolean[] movement = new boolean[4];
     private WorldView worldView;
@@ -58,6 +65,7 @@ public final class Barnocraft extends SimpleApplication {
     private String message = "";
     private final boolean smoke;
     private boolean furnitureSmoke,creativeSmoke,panoramaSmoke;
+    private int networkSmoke;
     private final GameOptions options = new GameOptions();
     private final Path savesPath;
     private final SaveStore saves;
@@ -78,7 +86,8 @@ public final class Barnocraft extends SimpleApplication {
         saves=new SaveStore(savesPath);
     }
     public static void main(String[] args) throws IOException {
-        Barnocraft game=new Barnocraft(Arrays.asList(args).contains("--smoke") || Arrays.asList(args).contains("--furniture-smoke") || Arrays.asList(args).contains("--creative-smoke") || Arrays.asList(args).contains("--panorama-smoke"));
+        Barnocraft game=new Barnocraft(Arrays.asList(args).contains("--smoke") || Arrays.asList(args).contains("--furniture-smoke") || Arrays.asList(args).contains("--creative-smoke") || Arrays.asList(args).contains("--panorama-smoke") || Arrays.asList(args).contains("--network-smoke-host") || Arrays.asList(args).contains("--network-smoke-client"));
+        game.networkSmoke=Arrays.asList(args).contains("--network-smoke-host")?1:Arrays.asList(args).contains("--network-smoke-client")?2:0;
         game.panoramaSmoke=Arrays.asList(args).contains("--panorama-smoke");
         game.creativeSmoke=Arrays.asList(args).contains("--creative-smoke");
         game.furnitureSmoke=Arrays.asList(args).contains("--furniture-smoke");
@@ -111,10 +120,10 @@ public final class Barnocraft extends SimpleApplication {
         try { options.load(savesPath.resolve("settings.properties")); } catch (IOException e) { message=e.getMessage(); }
         hud.setTexturePack(TexturePack.from(options.texturePack));
         panorama=new LoadingPanorama(assetManager);rootNode.attachChild(panorama.view.node);
-        bind(); show(Screen.MAIN);
+        bind(); bindNetworkText(); show(Screen.MAIN);
         if (smoke) {
             setPauseOnLostFocus(false);
-            screenshots=new ScreenshotAppState("target/",panoramaSmoke?"panorama-smoke-":creativeSmoke?"creative-smoke-":"menu-smoke-"); stateManager.attach(screenshots);
+            screenshots=new ScreenshotAppState("target/",networkSmoke>0?"network-"+networkSmoke+"-":panoramaSmoke?"panorama-smoke-":creativeSmoke?"creative-smoke-":"menu-smoke-"); stateManager.attach(screenshots);
         }
     }
     private void bind() {
@@ -163,6 +172,13 @@ public final class Barnocraft extends SimpleApplication {
         inputManager.addMapping(name,trigger); inputManager.addListener((ActionListener)this::action,name);
     }
     private void action(String name,boolean pressed,float tpf) {
+        if(screen==Screen.MULTIPLAYER || screen==Screen.OPEN_NETWORK) {
+            if(pressed && name.equals("break"))menuAction(menu.click(inputManager.getCursorPosition()));
+            if(pressed && name.equals("pause"))back();
+            return;
+        }
+        if(pressed && isGuest() && multiplayer.busy() && !name.startsWith("move") && !Set.of("pause","quit","jump","descend").contains(name))return;
+
         if (creatingWorldName) {
             if (!pressed) return;
             if (name.equals("break")) { menuAction(menu.click(inputManager.getCursorPosition())); return; }
@@ -212,7 +228,8 @@ public final class Barnocraft extends SimpleApplication {
                 if (commandBuffer.length()<120) commandBuffer.append(character.equals("underscore")?'_':character.charAt(0));
             } else if (name.equals("command_enter")) {
                 String entered=commandBuffer.toString();
-                String result=Cheats.execute(entered,inventory,world,player);
+                String result=isGuest() && !(entered.startsWith("give ") || entered.startsWith("gamemode "))
+                        ? "Команды мира доступны хозяину сервера" : Cheats.execute(entered,inventory,world,player);
                 commandOpen=false; commandBuffer.setLength(0);
                 hud.commandLine(entered+"  |  "+result);
                 return;
@@ -256,6 +273,10 @@ public final class Barnocraft extends SimpleApplication {
             }
             return;
         }
+        if(isGuest() && name.equals("place") && !(inventory.hotbarItemAt(selected)!=null && inventory.hotbarItemAt(selected).foodValue()>0)) {
+            requestNetwork(NetworkGameplay.Command.of("use"));return;
+        }
+        if(isGuest() && name.equals("break")) { requestNetwork(NetworkGameplay.Command.of("attack"));return; }
         if(name.equals("place") && (inventory.hotbarItemAt(selected)==ItemType.BUCKET || inventory.hotbarItemAt(selected)==ItemType.WATER_BUCKET)) {
             World.Hit changed=world.useBucket(inventory,selected,cam.getLocation(),cam.getDirection());
             if(changed!=null)worldView.changed(changed.x(),changed.z());return;
@@ -302,9 +323,12 @@ public final class Barnocraft extends SimpleApplication {
         String title="Barnocraft", subtitle="Java Edition";
         switch(next) {
             case MAIN -> {
-                buttons.add(new Menu.Button("worlds","Миры")); buttons.add(new Menu.Button("mods","Моды"));
+                buttons.add(new Menu.Button("worlds","Миры")); buttons.add(new Menu.Button("multiplayer","Мультиплеер")); buttons.add(new Menu.Button("mods","Моды"));
                 buttons.add(new Menu.Button("settings","Настройки"));
                 buttons.add(new Menu.Button("quit","Выход"));
+            }
+            case MULTIPLAYER, OPEN_NETWORK -> {
+                menu.showNetwork(next==Screen.OPEN_NETWORK,networkAddress.toString(),networkPort.toString(),addressFocused,characterSkin,connecting!=null || (isGuest() && world==null),message);return;
             }
             case WORLDS -> {
                 menu.showWorlds(saves,message); return;
@@ -325,10 +349,15 @@ public final class Barnocraft extends SimpleApplication {
                 return;
             }
             case PAUSE -> {
-                title="Мир "+slot; subtitle="Пауза • изменения сохраняются";
+                title=isGuest()?"Сетевая игра":"Мир "+slot;
+                subtitle=multiplayer==null?"Пауза • изменения сохраняются":isGuest()?"Мир хранится у хозяина":"Сервер работает · порт "+multiplayer.port();
                 buttons.add(new Menu.Button("resume","Продолжить")); buttons.add(new Menu.Button("settings","Настройки"));
-                buttons.add(new Menu.Button("save","Сохранить")); buttons.add(new Menu.Button("main","В главное меню"));
-                buttons.add(new Menu.Button("quit","Сохранить и выйти"));
+                if(!isGuest()) {
+                    buttons.add(new Menu.Button(multiplayer==null?"open_network":"close_network",multiplayer==null?"Открыть для сети":"Закрыть сеть"));
+                    buttons.add(new Menu.Button("save","Сохранить"));
+                }
+                buttons.add(new Menu.Button("main","В главное меню"));
+                buttons.add(new Menu.Button("quit",isGuest()?"Отключиться и выйти":"Сохранить и выйти"));
             }
             case INVENTORY -> { if(player.creative())menu.showCreative(inventory,creativePage,selected); else menu.showInventoryModern(inventory); return; }
             case STONECUTTER -> { menu.showStonecutterModern(inventory,world.stonecutterAt(stonecutterX,stonecutterY,stonecutterZ),message); return; }
@@ -342,6 +371,12 @@ public final class Barnocraft extends SimpleApplication {
     private void menuAction(String id) {
         if (id==null || screen==Screen.LOADING) return;
         message="";
+        if(id.equals("network_address")){addressFocused=true;show(screen);return;}
+        if(id.equals("network_port")){addressFocused=false;show(screen);return;}
+        if(id.startsWith("network_skin_")){if(connecting==null && !isGuest())characterSkin=id.endsWith("0")?0:1;show(screen);return;}
+        if(id.equals("network_start")){startNetwork();return;}
+        if(isGuest() && multiplayer.busy())return;
+        if(isGuest() && networkContainerAction(id))return;
         if(screen==Screen.INVENTORY && player.creative()) {
             if(id.equals("creative_prev") || id.equals("creative_next")) {
                 int pages=Math.max(1,(Menu.creativeItems().size()+39)/40);
@@ -536,6 +571,9 @@ public final class Barnocraft extends SimpleApplication {
         }
         switch(id) {
             case "worlds" -> show(Screen.WORLDS);
+            case "multiplayer" -> { addressFocused=true;show(Screen.MULTIPLAYER); }
+            case "open_network" -> { addressFocused=false;show(Screen.OPEN_NETWORK); }
+            case "close_network" -> { closeNetwork();message="Сервер закрыт";show(Screen.PAUSE); }
             case "mods" -> show(Screen.MODS);
             case "settings" -> { settingsBack=screen; show(Screen.SETTINGS); }
             case "resume" -> show(Screen.GAME);
@@ -560,10 +598,16 @@ public final class Barnocraft extends SimpleApplication {
         switch(screen) {
             case GAME -> { show(Screen.PAUSE); saveNow(); }
             case PAUSE -> show(Screen.GAME);
+            case MULTIPLAYER -> { cancelConnection();show(Screen.MAIN); }
+            case OPEN_NETWORK -> show(Screen.PAUSE);
             case WORLDS, MODS, CREATE_WORLD -> { creatingWorldName=false; show(Screen.MAIN); }
             case DELETE_WORLD -> { deletingSlot=0; show(Screen.WORLDS); }
             case SETTINGS -> show(settingsBack);
-            case CHEST -> { world.closeChest(chestX,chestY,chestZ);inventoryDrag=null;show(Screen.GAME); }
+            case CHEST -> {
+                if(isGuest())requestNetwork(new NetworkGameplay.Command("container-close",chestX,chestY,chestZ,0,0,false,""));
+                else world.closeChest(chestX,chestY,chestZ);
+                inventoryDrag=null;show(Screen.GAME);
+            }
             case INVENTORY, STONECUTTER, FURNACE -> { inventoryDrag=null; show(Screen.GAME); }
             default -> { }
         }
@@ -660,14 +704,14 @@ public final class Barnocraft extends SimpleApplication {
         return new SaveStore.Pose(player.position.x,player.position.y,player.position.z,yaw,pitch,selected,Math.max(1,player.health()),player.hunger(),player.respawnX(),player.respawnY(),player.respawnZ(),player.creative());
     }
     private void autoSave() {
-        if (saving!=null || world==null) return;
+        if (saving!=null || world==null || isGuest()) return;
         World.Snapshot snapshot=world.snapshot(); SaveStore.Pose pose=pose(); int target=slot;
         Inventory.Snapshot inventorySnapshot = inventory.snapshot();
         String savedName=worldName;
         saving=io.submit(()->{ saves.save(target,snapshot,pose,inventorySnapshot,savedName); return null; });
     }
     private boolean saveNow() {
-        if (world==null) return true;
+        if (world==null || isGuest()) return true;
         try {
             if (saving!=null) { saving.get(); saving=null; }
             saves.save(slot,world.snapshot(),pose(),inventory.snapshot(),worldName); autosave=0; return true;
@@ -678,6 +722,7 @@ public final class Barnocraft extends SimpleApplication {
         message=prefix+": "+cause.getMessage(); System.err.println(message);
     }
     private void unload() {
+        cancelConnection();closeNetwork();
         if (pythonMods!=null) { pythonMods.close(); pythonMods=null; }
         hud.modOverlays(java.util.Map.of());
         if (worldView!=null) worldView.close(); worldView=null; world=null; slot=0; worldName="";
@@ -689,6 +734,7 @@ public final class Barnocraft extends SimpleApplication {
     }
     @Override public void requestClose(boolean esc) { enqueue(()->{ quit(); return null; }); }
     @Override public void destroy() {
+        cancelConnection();closeNetwork();
         if (worldView!=null) worldView.close();
         if(panorama!=null)panorama.close();
         io.shutdownNow(); super.destroy();
@@ -794,6 +840,161 @@ public final class Barnocraft extends SimpleApplication {
             worldView.changed(x,z);
         }
     }
+    private boolean isGuest(){return multiplayer!=null && !multiplayer.hosting();}
+    private NetworkPlayer networkPose() {
+        boolean moving=active && (movement[0] || movement[1] || movement[2] || movement[3]);
+        return new NetworkPlayer(multiplayer==null?0:multiplayer.localId(),characterSkin,player.position.x,player.position.y,player.position.z,yaw,pitch,moving,!player.grounded,active && breakHeld);
+    }
+    private void requestNetwork(NetworkGameplay.Command command) {
+        if(isGuest())multiplayer.request(command,networkPose(),inventory,selected,player.creative());
+    }
+    private void bindNetworkText() {
+        inputManager.addRawInputListener(new com.jme3.input.RawInputListener() {
+            public void beginInput(){} public void endInput(){}
+            public void onJoyAxisEvent(com.jme3.input.event.JoyAxisEvent event){}
+            public void onJoyButtonEvent(com.jme3.input.event.JoyButtonEvent event){}
+            public void onMouseMotionEvent(com.jme3.input.event.MouseMotionEvent event){}
+            public void onMouseButtonEvent(com.jme3.input.event.MouseButtonEvent event){}
+            public void onTouchEvent(com.jme3.input.event.TouchEvent event){}
+            public void onKeyEvent(com.jme3.input.event.KeyInputEvent event) {
+                if((screen!=Screen.MULTIPLAYER && screen!=Screen.OPEN_NETWORK) || !event.isPressed())return;
+                int key=event.getKeyCode();
+                if(key==KeyInput.KEY_ESCAPE)return;
+                event.setConsumed();
+                if(connecting!=null || isGuest())return;
+                if(key==KeyInput.KEY_RETURN || key==KeyInput.KEY_NUMPADENTER){startNetwork();return;}
+                if(key==KeyInput.KEY_TAB){addressFocused=screen==Screen.MULTIPLAYER && !addressFocused;show(screen);return;}
+                StringBuilder buffer=addressFocused?networkAddress:networkPort;
+                if(key==KeyInput.KEY_BACK){if(!buffer.isEmpty())buffer.deleteCharAt(buffer.length()-1);}
+                else if(key==KeyInput.KEY_DELETE)buffer.setLength(0);
+                else {
+                    char c=event.getKeyChar();
+                    if(buffer.length()<(addressFocused?64:5) && (addressFocused?(c>32 && c<127):Character.isDigit(c)))buffer.append(c);
+                }
+                message="";show(screen);
+            }
+        });
+    }
+    private void startNetwork() {
+        if(connecting!=null || isGuest())return;
+        try {
+            int port=NetworkSession.parsePort(networkPort.toString());
+            if(screen==Screen.OPEN_NETWORK) {
+                if(world==null || multiplayer!=null)return;
+                multiplayer=new Multiplayer(NetworkSession.host(port),characterSkin,networkListener());
+                setPauseOnLostFocus(false);message="Мир открыт для сети · порт "+port;show(Screen.PAUSE);
+            } else if(screen==Screen.MULTIPLAYER) {
+                String address=networkAddress.toString().strip();
+                if(address.isEmpty())throw new IllegalArgumentException("Введите адрес сервера");
+                connecting=CompletableFuture.supplyAsync(()->{
+                    try { return NetworkSession.connect(address,port); }
+                    catch(IOException e){throw new CompletionException(e);}
+                },io);
+                show(Screen.MULTIPLAYER);
+            }
+        } catch(IOException | IllegalArgumentException e) {
+            message=e instanceof java.net.BindException?"Порт занят. Выберите другой порт":e.getMessage();show(screen);
+        }
+    }
+    private void finishConnection() {
+        if(connecting==null || !connecting.isDone())return;
+        try {
+            NetworkSession session=connecting.get();connecting=null;
+            multiplayer=new Multiplayer(session,characterSkin,networkListener());
+            setPauseOnLostFocus(false);message="Загрузка мира сервера...";show(Screen.MULTIPLAYER);
+        } catch(Exception e) { connecting=null;failure("Не удалось подключиться",e);show(Screen.MULTIPLAYER); }
+    }
+    private void cancelConnection() {
+        if(connecting instanceof CompletableFuture<?> pending)pending.whenComplete((session,error)->{if(session instanceof NetworkSession network)network.close();});
+        connecting=null;
+        if(isGuest() && world==null)closeNetwork();
+    }
+    private void closeNetwork() {
+        if(multiplayer!=null){multiplayer.close();multiplayer=null;}
+        for(PlayerModel model:remoteModels.values())model.node.removeFromParent();remoteModels.clear();
+        setPauseOnLostFocus(smoke?false:true);
+    }
+    private Multiplayer.Listener networkListener() {
+        return new Multiplayer.Listener() {
+            public void joined(SaveStore.Decoded state) {
+                world=World.restore(state.world());worldName=state.worldName();slot=0;loadingSlot=0;
+                inventory.restore(Inventory.emptySnapshot());
+                SaveStore.Pose spawn=state.pose();player.position.set(spawn.x(),spawn.y(),spawn.z());
+                player.setCreative(false);inventory.setCreative(false);player.restoreHealth(Player.MAX_HEALTH);player.restoreHunger(Player.MAX_HUNGER);
+                player.restoreRespawnPoint(-1,-1,-1);lastPlayerHealth=player.health();
+                yaw=spawn.yaw();pitch=spawn.pitch();select(1);
+                if(player.collides(world))player.respawn(world);
+                worldView=new WorldView(assetManager,world,TexturePack.from(options.texturePack));rootNode.attachChild(worldView.node);
+                updateCamera();show(Screen.LOADING);
+            }
+            public void changed(Set<Integer> cells) {
+                if(worldView==null)return;
+                Set<Integer> chunks=new HashSet<>();
+                for(int key:cells){int z=key%World.DEPTH,x=(key/World.DEPTH)%World.WIDTH;int chunk=(x/World.CHUNK)*World.CHUNKS_Z+z/World.CHUNK;if(chunks.add(chunk))worldView.changed(x,z);}
+                if(screen==Screen.CHEST || screen==Screen.FURNACE || screen==Screen.STONECUTTER) {
+                    boolean exists=screen==Screen.CHEST?world.chestAt(chestX,chestY,chestZ)!=null:screen==Screen.FURNACE?world.furnaceAt(furnaceX,furnaceY,furnaceZ)!=null:world.stonecutterAt(stonecutterX,stonecutterY,stonecutterZ)!=null;
+                    if(exists)show(screen);else { inventoryDrag=null;show(Screen.GAME); }
+                }
+            }
+            public void result(Inventory.Snapshot items,NetworkGameplay.Reply reply) {
+                inventory.restore(items);inventory.setCreative(player.creative());
+                if(!reply.notice().isBlank())hud.notify(reply.notice());
+                // A delayed reply must not reopen a screen after the player pressed Escape.
+                if(active)switch(reply.screen()) {
+                    case "CHEST" -> { chestX=reply.x();chestY=reply.y();chestZ=reply.z();show(Screen.CHEST); }
+                    case "FURNACE" -> { furnaceX=reply.x();furnaceY=reply.y();furnaceZ=reply.z();show(Screen.FURNACE); }
+                    case "STONECUTTER" -> { stonecutterX=reply.x();stonecutterY=reply.y();stonecutterZ=reply.z();show(Screen.STONECUTTER); }
+                    case "BED" -> player.setRespawnPoint(world.bedSpawn(reply.x(),reply.y(),reply.z()));
+                    default -> { }
+                }
+                if(screen==Screen.INVENTORY || screen==Screen.CHEST || screen==Screen.FURNACE || screen==Screen.STONECUTTER)show(screen);
+            }
+            public void disconnected(String reason) {
+                boolean guest=isGuest();
+                if(guest){unload();message="Отключено: "+reason;show(Screen.MULTIPLAYER);}
+                else {closeNetwork();hud.notify(reason);}
+            }
+        };
+    }
+    private void updateRemotePlayers(float dt) {
+        if(multiplayer==null)return;
+        remoteModels.entrySet().removeIf(entry->{
+            if(!multiplayer.players.containsKey(entry.getKey())){entry.getValue().node.removeFromParent();return true;}return false;
+        });
+        for(NetworkPlayer remote:multiplayer.players.values()) {
+            if(remote.id()==multiplayer.localId())continue;
+            PlayerModel model=remoteModels.get(remote.id());
+            if(model==null || model.skin!=remote.skin()) {
+                if(model!=null)model.node.removeFromParent();model=new PlayerModel(assetManager,remote.skin(),true);
+                remoteModels.put(remote.id(),model);rootNode.attachChild(model.node);
+            }
+            model.node.setCullHint(screen==Screen.LOADING || world==null?Spatial.CullHint.Always:Spatial.CullHint.Inherit);
+            model.update(remote,dt);
+        }
+    }
+    private boolean networkContainerAction(String id) {
+        if(screen!=Screen.CHEST && screen!=Screen.FURNACE && screen!=Screen.STONECUTTER)return false;
+        int x=screen==Screen.CHEST?chestX:screen==Screen.FURNACE?furnaceX:stonecutterX;
+        int y=screen==Screen.CHEST?chestY:screen==Screen.FURNACE?furnaceY:stonecutterY;
+        int z=screen==Screen.CHEST?chestZ:screen==Screen.FURNACE?furnaceZ:stonecutterZ;
+        String prefix=screen==Screen.CHEST?"chest:":screen==Screen.FURNACE?"furnace:":"machine:";
+        if(id.startsWith("recipe:") || id.equals("machine_craft")) {
+            requestNetwork(new NetworkGameplay.Command(id.startsWith("recipe:")?"container-recipe":"container-craft",x,y,z,0,0,false,id.startsWith("recipe:")?id.substring(7):""));return true;
+        }
+        if(id.equals("furnace_smelt"))return true;
+        String kind=null;int containerSlot=0,inventorySlot=0;
+        if(id.startsWith(prefix)) {
+            containerSlot=Integer.parseInt(id.substring(prefix.length()));
+            if(inventoryDrag!=null && inventoryDrag.startsWith("slot:")) {
+                inventorySlot=Integer.parseInt(inventoryDrag.substring(5));kind=screen==Screen.CHEST?"container-chest-put":"container-put";
+            } else {inventoryDrag=id;return true;}
+        } else if(id.startsWith("slot:") && inventoryDrag!=null && inventoryDrag.startsWith(prefix)) {
+            containerSlot=Integer.parseInt(inventoryDrag.substring(prefix.length()));inventorySlot=Integer.parseInt(id.substring(5));
+            kind=screen==Screen.CHEST?"container-chest-take":"container-take";
+        }
+        if(kind!=null){requestNetwork(new NetworkGameplay.Command(kind,x,y,z,containerSlot,inventorySlot,inventoryDragOne,""));inventoryDrag=null;inventoryDragOne=false;return true;}
+        return false;
+    }
     private void resize() {
         screenWidth=cam.getWidth(); screenHeight=cam.getHeight();
         cam.setFrustumPerspective(options.fov,(float)screenWidth/Math.max(1,screenHeight),.05f,500);
@@ -828,6 +1029,14 @@ public final class Barnocraft extends SimpleApplication {
             breakX = x; breakY = y; breakZ = z; breakProgress = 0f;
         }
 
+        if(isGuest()) {
+            if(multiplayer.busy())return;
+            breakProgress+=tpf;
+            if(player.creative() || breakProgress>=Math.max(0,block.breakTime(inventory.hotbarItemAt(selected)))) {
+                requestNetwork(NetworkGameplay.Command.of("mine"));resetBreakProgress();
+            }
+            return;
+        }
         if(player.creative()) {
             if(world.set(x,y,z,Block.AIR))worldView.changed(x,z);
             resetBreakProgress();return;
@@ -859,19 +1068,22 @@ public final class Barnocraft extends SimpleApplication {
     }
     @Override public void simpleUpdate(float tpf) {
         if (cam.getWidth()!=screenWidth || cam.getHeight()!=screenHeight) resize();
+        finishConnection();
+        if(multiplayer!=null)multiplayer.tick(tpf,world,pose(),worldName,networkPose(),inventory,active);
+        updateRemotePlayers(tpf);
         finishLoading();
         panorama.update(cam,tpf,screen==Screen.LOADING || screen==Screen.MAIN);menu.updateLoading(tpf);
         if(worldView!=null)worldView.node.setCullHint((screen==Screen.LOADING || screen==Screen.MAIN)?Spatial.CullHint.Always:Spatial.CullHint.Inherit);
-        if(world!=null && active) world.advanceTime(tpf);
+        if(world!=null && !isGuest() && (active || multiplayer!=null)) world.advanceTime(tpf);
         updateLighting(tpf);
         updateBreakProgress(tpf);
-        if(world!=null && screen==Screen.FURNACE) {
-            world.updateFurnaces(tpf);
+        if(world!=null && !isGuest() && (screen==Screen.FURNACE || multiplayer!=null))world.updateFurnaces(tpf);
+        if(world!=null && screen==Screen.FURNACE && world.furnaceAt(furnaceX,furnaceY,furnaceZ)!=null) {
             menu.refreshFurnace(inventory,world.furnaceAt(furnaceX,furnaceY,furnaceZ),
                     world.furnaceProgress(furnaceX,furnaceY,furnaceZ));
         }
-        if (active && world != null) {
-            player.tickHunger(tpf);
+        if(active && world!=null)player.tickHunger(tpf);
+        if (!isGuest() && (active || multiplayer!=null) && world != null) {
             for(int[] water:world.updateWater(tpf))worldView.changed(water[0],water[2]);
             for(int[] crop:world.updateCrops(tpf))worldView.changed(crop[0],crop[2]);
             world.mods.tick(tpf,player);
@@ -880,7 +1092,7 @@ public final class Barnocraft extends SimpleApplication {
             world.updateFish(tpf);
             world.ensureSheepNear(player.position);
             world.ensureFishNear(player.position);
-            for (ItemType item : ItemType.values()) {
+            if(active)for (ItemType item : ItemType.values()) {
                 int count=world.collectNear(player.position,1.25f,item);
                 for(int i=0;i<count;i++) inventory.add(item);
             }
@@ -888,7 +1100,7 @@ public final class Barnocraft extends SimpleApplication {
         if(player.health()<lastPlayerHealth)hud.damageFlash();
         lastPlayerHealth=player.health();
         if(player.dead() && world!=null) {
-            if(!world.keepInventory())world.createDeathChest(inventory,player.position);
+            if(!world.keepInventory() && !isGuest())world.createDeathChest(inventory,player.position);
             player.respawn(world);
             player.restoreHunger(Player.MAX_HUNGER);
             message=world.keepInventory()?"Вы погибли. Инвентарь сохранён":"Вы погибли. Предметы выпали";
@@ -1073,7 +1285,81 @@ public final class Barnocraft extends SimpleApplication {
             System.out.println("BARN0CRAFT_PANORAMA_WATER_SMOKE_OK");quit();
         }
     }
+    private void networkSmokeFrame() {
+        smokeTicks++;
+        if(smokeTicks>7200)throw new IllegalStateException("Network smoke timeout: "+networkSmoke+" stage "+smokeStage+" "+message);
+        if(networkSmoke==1) {
+            switch(smokeStage) {
+                case 0 -> {
+                    if(smokeTicks==6)screenshots.takeScreenshot();
+                    if(smokeTicks==10)smokeClick("multiplayer");
+                    if(smokeTicks==16)screenshots.takeScreenshot();
+                    if(smokeTicks==20){smokeClick("back");smokeClick("worlds");smokeClick("world1");smokeStage=1;}
+                }
+                case 1 -> {
+                    if(screen!=Screen.GAME || worldView.loadedCount()<25)return;
+                    for(int x=474;x<=486;x++)for(int z=316;z<=330;z++) {
+                        for(int y=89;y<=94;y++)world.set(x,y,z,y==89?Block.PLANKS:Block.AIR);
+                        worldView.changed(x,z);
+                    }
+                    world.set(480,91,319,Block.STONE);world.setDayTime(.5f);
+                    player.position.set(480.5f,90,325.5f);yaw=-.46f;pitch=-.10f;updateCamera();
+                    back();smokeClick("open_network");
+                    networkPort.setLength(0);networkPort.append("0");startNetwork();
+                    check(multiplayer==null && !message.isBlank(),"invalid port must not start a server");
+                    networkPort.setLength(0);networkPort.append(System.getProperty("barnocraft.smokePort","25577"));
+                    show(Screen.OPEN_NETWORK);smokeStage=2;smokeTicks=0;
+                }
+                case 2 -> {
+                    if(smokeTicks==8)screenshots.takeScreenshot();
+                    if(smokeTicks==12){smokeClick("network_start");check(multiplayer!=null,"host starts");smokeClick("resume");System.out.println("NETWORK_SMOKE_HOST_READY");smokeStage=3;smokeTicks=0;}
+                }
+                case 3 -> {
+                    if(remoteModels.isEmpty() || world.get(480,91,320)!=Block.GLASS)return;
+                    smokeStage=4;smokeTicks=0;
+                }
+                case 4 -> {
+                    if(smokeTicks==60){check(remoteModels.values().stream().anyMatch(model->model.skin==1),"Vanya rendered on host");screenshots.takeScreenshot();}
+                    if(smokeTicks>60 && remoteModels.isEmpty()) {
+                        check(saveNow(),"save host world");
+                        try { check(saves.load(slot).world().get(480,91,320)==Block.GLASS,"guest edit saved in host world"); }
+                        catch(IOException e){throw new IllegalStateException(e);}
+                        System.out.println("NETWORK_SMOKE_HOST_OK");quit();
+                    }
+                }
+                default -> { }
+            }
+        } else {
+            switch(smokeStage) {
+                case 0 -> {
+                    if(smokeTicks==8){smokeClick("multiplayer");smokeClick("network_skin_1");networkPort.setLength(0);networkPort.append(System.getProperty("barnocraft.smokePort","25577"));show(Screen.MULTIPLAYER);}
+                    if(smokeTicks==12)screenshots.takeScreenshot();
+                    if(smokeTicks==16){smokeClick("network_start");smokeStage=1;}
+                }
+                case 1 -> {
+                    if(screen!=Screen.GAME || worldView.loadedCount()<25)return;
+                    player.position.set(480.5f,90,322.5f);yaw=0;pitch=0;updateCamera();
+                    player.setCreative(true);inventory.setCreative(true);inventory.creativePick(selected,ItemType.GLASS);
+                    if(multiplayer.busy())return;
+                    requestNetwork(NetworkGameplay.Command.of("use"));smokeStage=2;smokeTicks=0;
+                }
+                case 2 -> {
+                    if(multiplayer.busy() || world.get(480,91,320)!=Block.GLASS)return;
+                    player.position.set(482.5f,90,322.5f);yaw=2.5536f;pitch=0;updateCamera();smokeStage=3;smokeTicks=0;
+                }
+                case 3 -> {
+                    movement[2]=smokeTicks<120;
+                    player.position.set(482.5f+.25f*FastMath.sin(smokeTicks*.1f),90,321.5f);
+                    yaw=(float)Math.atan2(player.position.x-480.5f,player.position.z-325.5f);pitch=-.1f;updateCamera();
+                    if(smokeTicks==90){check(remoteModels.values().stream().anyMatch(model->model.skin==0),"Sanya rendered on guest");screenshots.takeScreenshot();}
+                    if(smokeTicks==240){check(!saves.exists(1),"guest must not save over a local slot");System.out.println("NETWORK_SMOKE_CLIENT_OK");quit();}
+                }
+                default -> { }
+            }
+        }
+    }
     private void smokeFrame() {
+        if(networkSmoke>0){networkSmokeFrame();return;}
         if(panoramaSmoke) { panoramaSmokeFrame(); return; }
         if(creativeSmoke) { creativeSmokeFrame(); return; }
         if(furnitureSmoke) { furnitureSmokeFrame(); return; }

@@ -34,7 +34,7 @@ final class Menu {
         panel.detachAllChildren();hits.clear();node.setCullHint(Node.CullHint.Never);
         text("Barnocraft Java Edition",32,270,ColorRGBA.White);
         panel.attachChild(Hud.rect(assets,620,92,new ColorRGBA(.025f,.045f,.06f,.84f),-310,-304,1));
-        text("Загрузка мира "+slot,20,-245,ColorRGBA.White);
+        text(slot==0?"Загрузка сетевого мира":"Загрузка мира "+slot,20,-245,ColorRGBA.White);
         text("Лес и пустыня · блоки, существа и реки",13,-272,new ColorRGBA(.76f,.86f,.91f,1));
         panel.attachChild(Hud.rect(assets,560,4,new ColorRGBA(.12f,.2f,.24f,1),-280,-288,2));
         loadingBar=Hud.rect(assets,120,4,new ColorRGBA(.91f,.73f,.35f,1),-280,-288,3);panel.attachChild(loadingBar);
@@ -67,6 +67,31 @@ final class Menu {
             }
         }
         resize(width,height);
+    }
+    void showNetwork(boolean hosting,String address,String port,boolean addressFocused,int skin,boolean connecting,String message) {
+        panel.detachAllChildren();hits.clear();node.setCullHint(Node.CullHint.Never);
+        panel.attachChild(Hud.rect(assets,640,600,new ColorRGBA(.035f,.065f,.09f,.97f),-320,-300,1));
+        text(hosting?"Открыть для сети":"Мультиплеер",28,245,ColorRGBA.White);
+        text(hosting?"Друзья подключаются по вашему IP и порту":"Подключение к миру друга",15,210,new ColorRGBA(.7f,.8f,.82f,1));
+        if(!hosting)networkButton("network_address","Адрес: "+address+(addressFocused?"_":""),-270,143,540,38,addressFocused?HOVER:NORMAL);
+        else text("TCP · до 8 игроков · мир хранится у хозяина",15,155,ColorRGBA.White);
+        networkButton("network_port","Порт: "+port+(!addressFocused?"_":""),-160,93,320,38,!addressFocused?HOVER:NORMAL);
+        for(int i=0;i<2;i++) {
+            PlayerModel model=new PlayerModel(assets,i,false);
+            model.node.setLocalScale(82);model.node.setLocalTranslation(i==0?-125:125,-113,25);
+            model.node.setLocalRotation(new com.jme3.math.Quaternion().fromAngles(0,com.jme3.math.FastMath.PI+.20f,0));
+            panel.attachChild(model.node);
+            networkButton("network_skin_"+i,(skin==i?"> ":"")+(i==0?"Саня":"Ваня"),i==0?-220:30,-164,190,38,skin==i?HOVER:NORMAL);
+        }
+        networkButton("network_start",connecting?"Подключение...":hosting?"Открыть мир":"Подключиться",-270,-232,300,44,new ColorRGBA(.32f,.43f,.27f,1));
+        networkButton("back",connecting?"Отмена":"Назад",50,-232,220,44,NORMAL);
+        if(message!=null && !message.isBlank())text(message.length()>64?message.substring(0,64):message,13,-274,new ColorRGBA(1,.76f,.48f,1));
+        resize(width,height);
+    }
+    private void networkButton(String id,String label,float x,float y,float width,float height,ColorRGBA color) {
+        Geometry rect=Hud.rect(assets,width,height,color.clone(),x,y,2);panel.attachChild(rect);
+        hits.add(new Hit(new Button(id,label),x,y,width,height,rect));
+        textAt(label,18,x+width/2,y+(height-18)/2,ColorRGBA.White);
     }
     void showWorlds(SaveStore saves,String message) {
         panel.detachAllChildren(); hits.clear(); node.setCullHint(Node.CullHint.Never);

@@ -47,73 +47,101 @@ public final class SaveStore {
         Path target = slotPath(slot), temp = Files.createTempFile(directory,"world-"+slot+"-",".tmp");
         try {
             try (var out = new DataOutputStream(new GZIPOutputStream(Files.newOutputStream(temp)))) {
-                out.writeInt(MAGIC); out.writeInt(VERSION); out.writeUTF(safeName);
-                out.writeFloat(world.dayTime()); out.writeBoolean(world.keepInventory()); out.writeLong(world.seed());
-                out.writeFloat(pose.x()); out.writeFloat(pose.y()); out.writeFloat(pose.z());
-                out.writeFloat(pose.yaw()); out.writeFloat(pose.pitch()); out.writeInt(pose.selected()); out.writeInt(pose.health()); out.writeInt(pose.hunger());
-                out.writeFloat(pose.respawnX());out.writeFloat(pose.respawnY());out.writeFloat(pose.respawnZ());out.writeBoolean(pose.creative());
-                out.writeInt(world.edits().size());
-                for (var entry : world.edits().entrySet()) { out.writeInt(entry.getKey()); out.writeUTF(entry.getValue().name()); }
-                out.writeInt(world.doors().size());
-                for (Door door : world.doors()) {
-                    out.writeInt(door.x()); out.writeInt(door.y()); out.writeInt(door.z());
-                    out.writeInt(door.facing()); out.writeBoolean(door.open());
-                }
-                out.writeInt(world.rotations().size());
-                for (var entry : world.rotations().entrySet()) {
-                    out.writeInt(entry.getKey()); out.writeByte(entry.getValue());
-                }
-                writeInventory(out, inventory);
-                out.writeInt(world.stonecutters().size());
-                for (var entry : world.stonecutters().entrySet()) {
-                    out.writeInt(entry.getKey());
-                    writeSlot(out,entry.getValue().coal());
-                    writeSlot(out,entry.getValue().stone());
-                    writeSlot(out,entry.getValue().output());
-                    out.writeUTF(entry.getValue().recipe().name());
-                }
-                out.writeInt(world.furnaces().size());
-                for (var entry : world.furnaces().entrySet()) {
-                    out.writeInt(entry.getKey());
-                    writeSlot(out,entry.getValue().coal());
-                    writeSlot(out,entry.getValue().input());
-                    writeSlot(out,entry.getValue().output());
-                }
-                out.writeInt(world.sheep().size());
-                for (Sheep sheep:world.sheep()) {
-                    out.writeFloat(sheep.x()); out.writeFloat(sheep.y()); out.writeFloat(sheep.z()); out.writeInt(sheep.health());
-                    out.writeFloat(sheep.directionX()); out.writeFloat(sheep.directionZ()); out.writeFloat(sheep.fleeTime());out.writeUTF(sheep.id());
-                }
-                out.writeInt(world.workshops().size());
-                for(var entry:world.workshops().entrySet()) {
-                    out.writeInt(entry.getKey()); out.writeUTF(entry.getValue().recipe().name());
-                    for(Inventory.Slot item:entry.getValue().slots()) writeSlot(out,item);
-                }
-                out.writeInt(world.zombies().size());
-                for(Zombie zombie:world.zombies()) {
-                    out.writeFloat(zombie.x()); out.writeFloat(zombie.y()); out.writeFloat(zombie.z());
-                    out.writeInt(zombie.health()); out.writeFloat(zombie.attackCooldown()); out.writeUTF(zombie.id());
-                }
-                byte[] modData=world.modData().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-                out.writeInt(modData.length);out.write(modData);
-                out.writeInt(world.chests().size());
-                for(var entry:world.chests().entrySet()) {
-                    out.writeInt(entry.getKey());out.writeBoolean(entry.getValue().deathCache());out.writeBoolean(entry.getValue().opened());
-                    for(Inventory.Slot chestSlot:entry.getValue().slots())writeSlot(out,chestSlot);
-                }
-                out.writeInt(world.waterLevels().size());
-                for(var entry:world.waterLevels().entrySet()) { out.writeInt(entry.getKey());out.writeByte(entry.getValue()); }
-
+                writeWorld(out,world,pose,inventory,safeName);
             }
             replace(temp,target);
         } finally { Files.deleteIfExists(temp); }
+    }
+    static byte[] encode(World.Snapshot world, Pose pose, Inventory.Snapshot inventory, String name) throws IOException {
+        var bytes=new ByteArrayOutputStream();
+        try(var out=new DataOutputStream(new GZIPOutputStream(bytes))) { writeWorld(out,world,pose,inventory,name); }
+        return bytes.toByteArray();
+    }
+    private static void writeWorld(DataOutputStream out,World.Snapshot world,Pose pose,Inventory.Snapshot inventory,String safeName) throws IOException {
+        out.writeInt(MAGIC); out.writeInt(VERSION); out.writeUTF(safeName);
+        out.writeFloat(world.dayTime()); out.writeBoolean(world.keepInventory()); out.writeLong(world.seed());
+        out.writeFloat(pose.x()); out.writeFloat(pose.y()); out.writeFloat(pose.z());
+        out.writeFloat(pose.yaw()); out.writeFloat(pose.pitch()); out.writeInt(pose.selected()); out.writeInt(pose.health()); out.writeInt(pose.hunger());
+        out.writeFloat(pose.respawnX());out.writeFloat(pose.respawnY());out.writeFloat(pose.respawnZ());out.writeBoolean(pose.creative());
+        out.writeInt(world.edits().size());
+        for (var entry : world.edits().entrySet()) { out.writeInt(entry.getKey()); out.writeUTF(entry.getValue().name()); }
+        out.writeInt(world.doors().size());
+        for (Door door : world.doors()) {
+            out.writeInt(door.x()); out.writeInt(door.y()); out.writeInt(door.z());
+            out.writeInt(door.facing()); out.writeBoolean(door.open());
+        }
+        out.writeInt(world.rotations().size());
+        for (var entry : world.rotations().entrySet()) {
+            out.writeInt(entry.getKey()); out.writeByte(entry.getValue());
+        }
+        writeInventory(out, inventory);
+        out.writeInt(world.stonecutters().size());
+        for (var entry : world.stonecutters().entrySet()) {
+            out.writeInt(entry.getKey());
+            writeSlot(out,entry.getValue().coal());
+            writeSlot(out,entry.getValue().stone());
+            writeSlot(out,entry.getValue().output());
+            out.writeUTF(entry.getValue().recipe().name());
+        }
+        out.writeInt(world.furnaces().size());
+        for (var entry : world.furnaces().entrySet()) {
+            out.writeInt(entry.getKey());
+            writeSlot(out,entry.getValue().coal());
+            writeSlot(out,entry.getValue().input());
+            writeSlot(out,entry.getValue().output());
+        }
+        out.writeInt(world.sheep().size());
+        for (Sheep sheep:world.sheep()) {
+            out.writeFloat(sheep.x()); out.writeFloat(sheep.y()); out.writeFloat(sheep.z()); out.writeInt(sheep.health());
+            out.writeFloat(sheep.directionX()); out.writeFloat(sheep.directionZ()); out.writeFloat(sheep.fleeTime());out.writeUTF(sheep.id());
+        }
+        out.writeInt(world.workshops().size());
+        for(var entry:world.workshops().entrySet()) {
+            out.writeInt(entry.getKey()); out.writeUTF(entry.getValue().recipe().name());
+            for(Inventory.Slot item:entry.getValue().slots()) writeSlot(out,item);
+        }
+        out.writeInt(world.zombies().size());
+        for(Zombie zombie:world.zombies()) {
+            out.writeFloat(zombie.x()); out.writeFloat(zombie.y()); out.writeFloat(zombie.z());
+            out.writeInt(zombie.health()); out.writeFloat(zombie.attackCooldown()); out.writeUTF(zombie.id());
+        }
+        byte[] modData=world.modData().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        out.writeInt(modData.length);out.write(modData);
+        out.writeInt(world.chests().size());
+        for(var entry:world.chests().entrySet()) {
+            out.writeInt(entry.getKey());out.writeBoolean(entry.getValue().deathCache());out.writeBoolean(entry.getValue().opened());
+            for(Inventory.Slot chestSlot:entry.getValue().slots())writeSlot(out,chestSlot);
+        }
+        out.writeInt(world.waterLevels().size());
+        for(var entry:world.waterLevels().entrySet()) { out.writeInt(entry.getKey());out.writeByte(entry.getValue()); }
+
+    }
+    record Decoded(World.Snapshot world,Pose pose,Inventory.Snapshot inventory,String worldName) {}
+    static Decoded decode(byte[] bytes) throws IOException {
+        try(var gzip=new GZIPInputStream(new ByteArrayInputStream(bytes));
+            var in=new DataInputStream(new FilterInputStream(gzip) {
+                private int remaining=64*1024*1024;
+                @Override public int read() throws IOException {
+                    if(remaining--<=0)throw new IOException("Мир слишком большой для сетевой передачи");return super.read();
+                }
+                @Override public int read(byte[] buffer,int offset,int length) throws IOException {
+                    if(remaining<=0)throw new IOException("Мир слишком большой для сетевой передачи");
+                    int count=this.in.read(buffer,offset,Math.min(length,remaining));if(count>0)remaining-=count;return count;
+                }
+            })) { return readWorld(in,1); }
     }
     static void replace(Path temp, Path target) throws IOException {
         try { Files.move(temp,target,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE); }
         catch (AtomicMoveNotSupportedException e) { Files.move(temp,target,StandardCopyOption.REPLACE_EXISTING); }
     }
     public Saved load(int slot) throws IOException {
-        try (var in = new DataInputStream(new GZIPInputStream(Files.newInputStream(slotPath(slot))))) {
+        try(var in=new DataInputStream(new GZIPInputStream(Files.newInputStream(slotPath(slot))))) {
+            Decoded data=readWorld(in,slot);
+            return new Saved(World.restore(data.world()),data.pose(),data.inventory(),data.worldName());
+        }
+    }
+    private static Decoded readWorld(DataInputStream in,int slot) throws IOException {
+        try {
             if (in.readInt() != MAGIC) throw new IOException("Неизвестный формат мира");
             int version=in.readInt();
             if (version<1 || version>VERSION) throw new IOException("Неизвестная версия мира");
@@ -267,11 +295,11 @@ public final class SaveStore {
             if (edits.values().stream().filter(Block::door).count() != doorCount*2L || in.read()!=-1)
                 throw new IOException("Повреждённое сохранение");
             World.Snapshot snapshot=new World.Snapshot(seed,edits,doors,rotations,stonecutters,furnaces,sheep,zombies,dayTime,keepInventory,workshops,modData,chests,waterLevels);
-            return new Saved(World.restore(snapshot),pose,inventory,worldName);
+            return new Decoded(snapshot,pose,inventory,worldName);
         } catch (IllegalArgumentException e) { throw new IOException("Неизвестный блок в сохранении",e); }
     }
 
-    private static void writeInventory(DataOutputStream out, Inventory.Snapshot inventory) throws IOException {
+    static void writeInventory(DataOutputStream out, Inventory.Snapshot inventory) throws IOException {
         writeSlots(out, inventory.slots());
         writeSlots(out, inventory.craft());
     }
@@ -320,7 +348,7 @@ public final class SaveStore {
         return World.stonecutterRecipe(recipe);
     }
 
-    private static Inventory.Snapshot readInventory(DataInputStream in,boolean hasDurability,boolean hasModItems) throws IOException {
+    static Inventory.Snapshot readInventory(DataInputStream in,boolean hasDurability,boolean hasModItems) throws IOException {
         return new Inventory.Snapshot(readSlots(in, Inventory.SLOT_COUNT,hasDurability,hasModItems), readSlots(in, Inventory.CRAFT_SIZE,hasDurability,hasModItems));
     }
 

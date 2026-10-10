@@ -18,7 +18,12 @@
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Metalworking.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/ModView.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/ModWorld.java
+/home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Multiplayer.java
+/home/artem/Barnocraft-WE/src/main/java/com/barnocraft/NetworkGameplay.java
+/home/artem/Barnocraft-WE/src/main/java/com/barnocraft/NetworkPlayer.java
+/home/artem/Barnocraft-WE/src/main/java/com/barnocraft/NetworkSession.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Player.java
+/home/artem/Barnocraft-WE/src/main/java/com/barnocraft/PlayerModel.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/PythonModApi.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Region.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/SaveStore.java

@@ -895,6 +895,30 @@ public final class World implements VoxelVolume {
             this(seed,edits,doors,rotations,stonecutters,furnaces,sheep,List.of(),.28f,false);
         }
     }
+    synchronized void applyNetworkEntities(List<DroppedItem> items,List<Fish> animals) { drops.clear();drops.addAll(items);fish.clear();fish.addAll(animals); }
+
+    /** Apply an authoritative server snapshot without rebuilding the world or its region cache. */
+    synchronized Set<Integer> applyNetwork(Snapshot state) {
+        if(state.seed()!=seed)throw new IllegalArgumentException("Server world changed");
+        Set<Integer> changed=new HashSet<>();
+        Set<Integer> keys=new HashSet<>(edits.keySet());keys.addAll(state.edits().keySet());
+        for(int key:keys)if(!Objects.equals(edits.get(key),state.edits().get(key))
+                || !Objects.equals(rotations.get(key),state.rotations().get(key))
+                || !Objects.equals(water.levels.get(key),state.waterLevels().get(key)))changed.add(key);
+        Map<Integer,Door> nextDoors=new HashMap<>();
+        for(Door door:state.doors())nextDoors.put(key(door.x(),door.y(),door.z()),door);
+        Set<Integer> doorKeys=new HashSet<>(doors.keySet());doorKeys.addAll(nextDoors.keySet());
+        for(int key:doorKeys)if(!Objects.equals(doors.get(key),nextDoors.get(key)))changed.add(key);
+        edits.clear();edits.putAll(state.edits());rotations.clear();rotations.putAll(state.rotations());
+        doors.clear();doors.putAll(nextDoors);water.levels.clear();water.levels.putAll(state.waterLevels());
+        stonecutters.clear();stonecutters.putAll(state.stonecutters());furnaces.clear();furnaces.putAll(state.furnaces());
+        chests.clear();chests.putAll(state.chests());
+        sheep.clear();sheep.addAll(state.sheep());zombies.clear();zombies.addAll(state.zombies());
+        dayTime=state.dayTime();keepInventory=state.keepInventory();
+        if(!changed.isEmpty())blockRevision++;
+        return changed;
+    }
+
     public static World restore(Snapshot saved) {
         World world = new World(saved.seed());
         world.edits.putAll(saved.edits());
