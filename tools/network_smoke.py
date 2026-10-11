@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """Launch two real game windows; verify LAN UI, avatars, building, saving and exit."""
 from pathlib import Path
+import argparse
 import socket
 import subprocess
 import time
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--address', default='127.0.0.1')
+parser.add_argument('--port', type=int)
+args = parser.parse_args()
 root = Path(__file__).resolve().parents[1]
 with socket.socket() as reservation:
     reservation.bind(('127.0.0.1', 0))
-    port = reservation.getsockname()[1]
+    port = args.port or reservation.getsockname()[1]
 logs = [root / 'target' / f'network-{role}.log' for role in ('host', 'client')]
 processes = []
 handles = []
@@ -17,7 +22,7 @@ try:
         handle = logs[index].open('w')
         handles.append(handle)
         process = subprocess.Popen(
-            ['java', f'-Dbarnocraft.smokePort={port}', '-jar', 'target/barnocraft.jar', f'--network-smoke-{role}'],
+            ['java', f'-Dbarnocraft.smokePort={port}', f'-Dbarnocraft.smokeAddress={args.address}', '-jar', 'target/barnocraft.jar', f'--network-smoke-{role}'],
             cwd=root, stdout=handle, stderr=subprocess.STDOUT)
         processes.append(process)
         return process

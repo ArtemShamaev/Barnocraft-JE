@@ -8,7 +8,7 @@ import java.util.zip.*;
 /** Five independent, versioned saves. Write a temporary file before atomically replacing a slot. */
 public final class SaveStore {
     // VERSION covers both the file schema and the procedural generator used by stored seeds.
-    private static final int MAGIC = 0x4241524E, VERSION = 21;
+    private static final int MAGIC = 0x4241524E, VERSION = 22;
     private final Path directory;
     public SaveStore(Path directory) { this.directory = directory; }
     public record Pose(float x, float y, float z, float yaw, float pitch, int selected,int health,int hunger,float respawnX,float respawnY,float respawnZ,boolean creative) {
@@ -25,7 +25,10 @@ public final class SaveStore {
         return directory.resolve("world-" + slot + ".dat");
     }
     public boolean exists(int slot) { return Files.exists(slotPath(slot)); }
-    public boolean delete(int slot) throws IOException { return Files.deleteIfExists(slotPath(slot)); }
+    public boolean delete(int slot) throws IOException {
+        boolean deleted=Files.deleteIfExists(slotPath(slot));
+        for(Dimension dimension:Dimension.values())Files.deleteIfExists(dimensionPath(slot,dimension));return deleted;
+    }
     public String worldName(int slot) {
         if (!exists(slot)) return "Мир "+slot;
         try (var in=new DataInputStream(new GZIPInputStream(Files.newInputStream(slotPath(slot))))) {
@@ -41,10 +44,24 @@ public final class SaveStore {
         save(slot,world,pose,inventory,"Мир "+slot);
     }
     public void save(int slot, World.Snapshot world, Pose pose, Inventory.Snapshot inventory,String worldName) throws IOException {
-        String safeName=worldName==null?"Мир "+slot:worldName.strip();
+        saveFile(slotPath(slot),world,pose,inventory,worldName==null?"Мир "+slot:worldName);
+    }
+    public void saveUniverse(int slot,List<World.Snapshot> dimensions,World.Snapshot current,Pose pose,Inventory.Snapshot inventory,String name) throws IOException {
+        for(World.Snapshot dimension:dimensions)saveDimension(slot,dimension,pose,inventory,name);
+        save(slot,current,pose,inventory,name);
+    }
+    public Path dimensionPath(int slot,Dimension dimension) {
+        slotPath(slot);return directory.resolve("world-"+slot+"-"+dimension.name().toLowerCase(Locale.ROOT)+".dat");
+    }
+    public void saveDimension(int slot,World.Snapshot world,Pose pose,Inventory.Snapshot inventory,String name) throws IOException {
+        saveFile(dimensionPath(slot,world.dimension()),world,pose,inventory,name);
+    }
+    public Saved loadDimension(int slot,Dimension dimension) throws IOException {return loadFile(dimensionPath(slot,dimension),slot);}
+    private void saveFile(Path target,World.Snapshot world,Pose pose,Inventory.Snapshot inventory,String worldName) throws IOException {
+        String safeName=worldName.strip();
         if(safeName.isEmpty() || safeName.length()>32) throw new IllegalArgumentException("Имя мира должно быть от 1 до 32 символов");
         Files.createDirectories(directory);
-        Path target = slotPath(slot), temp = Files.createTempFile(directory,"world-"+slot+"-",".tmp");
+        Path temp = Files.createTempFile(directory,"world-",".tmp");
         try {
             try (var out = new DataOutputStream(new GZIPOutputStream(Files.newOutputStream(temp)))) {
                 writeWorld(out,world,pose,inventory,safeName);
@@ -58,7 +75,7 @@ public final class SaveStore {
         return bytes.toByteArray();
     }
     private static void writeWorld(DataOutputStream out,World.Snapshot world,Pose pose,Inventory.Snapshot inventory,String safeName) throws IOException {
-        out.writeInt(MAGIC); out.writeInt(VERSION); out.writeUTF(safeName);
+        out.writeInt(MAGIC); out.writeInt(VERSION); out.writeUTF(safeName);out.writeUTF(world.dimension().name());
         out.writeFloat(world.dayTime()); out.writeBoolean(world.keepInventory()); out.writeLong(world.seed());
         out.writeFloat(pose.x()); out.writeFloat(pose.y()); out.writeFloat(pose.z());
         out.writeFloat(pose.yaw()); out.writeFloat(pose.pitch()); out.writeInt(pose.selected()); out.writeInt(pose.health()); out.writeInt(pose.hunger());
@@ -114,6 +131,11 @@ public final class SaveStore {
         }
         out.writeInt(world.waterLevels().size());
         for(var entry:world.waterLevels().entrySet()) { out.writeInt(entry.getKey());out.writeByte(entry.getValue()); }
+        out.writeInt(world.hellMobs().size());
+        for(HellMob mob:world.hellMobs()) {
+            out.writeUTF(mob.id());out.writeUTF(mob.kind().name());out.writeFloat(mob.x());out.writeFloat(mob.y());out.writeFloat(mob.z());
+            out.writeInt(mob.health());out.writeFloat(mob.heading());out.writeFloat(mob.cooldown());
+        }
 
     }
     record Decoded(World.Snapshot world,Pose pose,Inventory.Snapshot inventory,String worldName) {}
@@ -134,8 +156,9 @@ public final class SaveStore {
         try { Files.move(temp,target,StandardCopyOption.REPLACE_EXISTING,StandardCopyOption.ATOMIC_MOVE); }
         catch (AtomicMoveNotSupportedException e) { Files.move(temp,target,StandardCopyOption.REPLACE_EXISTING); }
     }
-    public Saved load(int slot) throws IOException {
-        try(var in=new DataInputStream(new GZIPInputStream(Files.newInputStream(slotPath(slot))))) {
+    public Saved load(int slot) throws IOException {return loadFile(slotPath(slot),slot);}
+    private Saved loadFile(Path path,int slot) throws IOException {
+        try(var in=new DataInputStream(new GZIPInputStream(Files.newInputStream(path)))) {
             Decoded data=readWorld(in,slot);
             return new Saved(World.restore(data.world()),data.pose(),data.inventory(),data.worldName());
         }
@@ -146,6 +169,7 @@ public final class SaveStore {
             int version=in.readInt();
             if (version<1 || version>VERSION) throw new IOException("Неизвестная версия мира");
             String worldName=version>=10?in.readUTF():"Мир "+slot;
+            Dimension dimension=version>=22?Dimension.valueOf(in.readUTF()):Dimension.SURFACE;
             float dayTime=version>=12?in.readFloat():.28f;
             boolean keepInventory=version>=12 && in.readBoolean();
             if(!Float.isFinite(dayTime) || dayTime<0 || dayTime>=1) throw new IOException("Некорректное время суток");
@@ -292,9 +316,18 @@ public final class SaveStore {
                         throw new IOException("Invalid water flow");
                 }
             }
+            List<HellMob> hellMobs=new ArrayList<>();
+            if(version>=22) {
+                int mobCount=in.readInt();if(mobCount<0 || mobCount>1000)throw new IOException("Некорректное число адских мобов");
+                for(int i=0;i<mobCount;i++) {
+                    HellMob mob=new HellMob(in.readUTF(),HellMob.Kind.valueOf(in.readUTF()),in.readFloat(),in.readFloat(),in.readFloat(),in.readInt(),in.readFloat(),in.readFloat());
+                    if(!Float.isFinite(mob.x()+mob.y()+mob.z()+mob.heading()+mob.cooldown()) || mob.x()<0 || mob.x()>=World.WIDTH || mob.z()<0 || mob.z()>=World.DEPTH || mob.y()<0 || mob.y()>=World.HEIGHT || mob.health()<1 || mob.health()>mob.maxHealth() || mob.cooldown()<0 || mob.cooldown()>2)throw new IOException("Некорректный адский моб");
+                    hellMobs.add(mob);
+                }
+            }
             if (edits.values().stream().filter(Block::door).count() != doorCount*2L || in.read()!=-1)
                 throw new IOException("Повреждённое сохранение");
-            World.Snapshot snapshot=new World.Snapshot(seed,edits,doors,rotations,stonecutters,furnaces,sheep,zombies,dayTime,keepInventory,workshops,modData,chests,waterLevels);
+            World.Snapshot snapshot=new World.Snapshot(seed,edits,doors,rotations,stonecutters,furnaces,sheep,zombies,dayTime,keepInventory,workshops,modData,chests,waterLevels,dimension,hellMobs);
             return new Decoded(snapshot,pose,inventory,worldName);
         } catch (IllegalArgumentException e) { throw new IOException("Неизвестный блок в сохранении",e); }
     }

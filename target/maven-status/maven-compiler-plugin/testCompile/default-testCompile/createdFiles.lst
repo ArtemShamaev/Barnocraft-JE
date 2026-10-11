@@ -1,6 +1,7 @@
 com/barnocraft/MobTest.class
 com/barnocraft/StairsTest.class
 com/barnocraft/WaterPhysicsTest.class
+com/barnocraft/DimensionNetworkTest$Instance.class
 com/barnocraft/FurnitureTest.class
 com/barnocraft/DeepstoneTest.class
 com/barnocraft/RotationTest.class
@@ -10,12 +11,15 @@ com/barnocraft/StreamingTest.class
 com/barnocraft/PartialLightingTest.class
 com/barnocraft/GoldTest.class
 com/barnocraft/UndergroundTest.class
+com/barnocraft/DimensionNetworkTest.class
 com/barnocraft/DoorTest.class
+com/barnocraft/HellForestTest.class
 com/barnocraft/EquipmentTexturesTest.class
 com/barnocraft/ChunkMeshTest.class
 com/barnocraft/ChestRenderingTest.class
 com/barnocraft/WaterTest.class
 com/barnocraft/CubeFontTest.class
+com/barnocraft/PlayerModelTest.class
 com/barnocraft/MultiplayerTest$Client.class
 com/barnocraft/ModApiTest.class
 com/barnocraft/SaveStoreTest.class

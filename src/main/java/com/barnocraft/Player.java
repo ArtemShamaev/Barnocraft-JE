@@ -152,6 +152,9 @@ public final class Player {
         if(respawnX>=0 && world.validBedSpawn(respawnX,respawnY,respawnZ)) {
             position.set(respawnX,respawnY,respawnZ);velocityY=0;grounded=false;health=MAX_HEALTH;return;
         }
+        if(world.dimension()==Dimension.HELL_FOREST) {
+            position.set(Portal.safeExit(world,world.portals().get(0)));velocityY=0;grounded=false;health=MAX_HEALTH;return;
+        }
         position.set(world.width() / 2f + .5f, World.HEIGHT + 1, world.depth() / 2f + .5f);
         for (int y = World.HEIGHT - 1; y >= 0; y--) {
             if (world.get(floor(position.x), y, floor(position.z)).solid()) {

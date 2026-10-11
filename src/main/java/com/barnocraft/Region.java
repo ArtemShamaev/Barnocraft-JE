@@ -11,7 +11,15 @@ final class Region implements VoxelVolume {
     private static final Block[] TYPES = Block.values();
 
     Region(long seed, int ox, int oz, int worldWidth, int worldDepth, boolean features) {
+        this(seed,ox,oz,worldWidth,worldDepth,features,Dimension.SURFACE);
+    }
+    Region(long seed,int ox,int oz,int worldWidth,int worldDepth,boolean features,Dimension dimension) {
         this.ox = ox; this.oz = oz; this.worldWidth = worldWidth; this.worldDepth = worldDepth;
+        if(dimension==Dimension.HELL_FOREST) {
+            HellTerrain.generate(this,seed,ox,oz);
+            for(int x=0;x<WIDTH;x++)for(int z=0;z<DEPTH;z++)ground[x][z]=HellTerrain.height(seed,ox+x,oz+z);
+            Portal.generate(this,seed,dimension,ox,oz,worldWidth,worldDepth);return;
+        }
         for (int x = 0; x < WIDTH; x++) {
             for (int z = 0; z < DEPTH; z++) {
                 int surface = features ? Terrain.height(seed, x + ox, z + oz) : 5;
@@ -29,6 +37,7 @@ final class Region implements VoxelVolume {
         if (features) {
             Underground.generate(this, seed ^ ((long) ox << 32) ^ oz);
             generateTrees(new Random(seed ^ ((long) ox << 32) ^ oz),seed);
+            Portal.generate(this,seed,dimension,ox,oz,worldWidth,worldDepth);
         }
     }
 

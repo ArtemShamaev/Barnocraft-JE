@@ -15,7 +15,8 @@ final class VoxelLighting {
                 open[i]=!b.blocksLight();
                 if(!open[i]) exposed=false;
                 if(exposed) sky[i]=15;
-                if(b==Block.TORCH || b==Block.LANTERN) block[i]=14;
+                if(b==Block.TORCH || b==Block.LANTERN)block[i]=14;
+                if(b==Block.EMBER_CRYSTAL || b==Block.HELL_LAVA || b==Block.FOREST_PORTAL)block[i]=15;
             }
         }
         spread(sky); spread(block);

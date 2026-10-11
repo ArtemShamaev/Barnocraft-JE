@@ -73,13 +73,55 @@ class MultiplayerTest {
             var out=new DataOutputStream(socket.getOutputStream());out.writeInt(0x42434E54);out.writeInt(999);out.flush();
             long deadline=System.nanoTime()+Duration.ofSeconds(3).toNanos();NetworkSession.Event event=null;
             while(event==null && System.nanoTime()<deadline){event=host.poll();Thread.sleep(5);}
-            assertNotNull(event);assertEquals(0,event.type());assertTrue(event.error().contains("версия"));
+            assertNotNull(event);assertEquals(0,event.type());assertTrue(event.error().contains("версии"));
         }
         port=port();try(NetworkSession host=NetworkSession.host(port);Socket socket=new Socket("localhost",port)) {
-            var out=new DataOutputStream(socket.getOutputStream());out.writeInt(0x42434E54);out.writeInt(1);out.writeInt(Integer.MAX_VALUE);out.flush();
+            var out=new DataOutputStream(socket.getOutputStream());out.writeInt(0x42434E54);out.writeInt(3);out.writeInt(Integer.MAX_VALUE);out.flush();
             long deadline=System.nanoTime()+Duration.ofSeconds(3).toNanos();NetworkSession.Event event=null;
             while(event==null && System.nanoTime()<deadline){event=host.poll();Thread.sleep(5);}
             assertNotNull(event);assertEquals(0,event.type());
+        }
+    }
+    @Test void backgroundHeartbeatsSurviveSixteenSecondsWithoutGameTicks() throws Exception {
+        int port=port();
+        try(NetworkSession host=NetworkSession.host(port);NetworkSession client=NetworkSession.connect("127.0.0.1",port)) {
+            // The previous transport timed out after 15 s when the window/loading thread stalled.
+            Thread.sleep(16000);
+            assertEquals(1,host.peerIds().size());assertEquals(1,client.peerIds().size());
+            assertNull(host.poll());assertNull(client.poll(),"Heartbeats must not fill the game event queue");
+            client.send(0,NetworkSession.HELLO,new byte[]{1});
+            long deadline=System.nanoTime()+Duration.ofSeconds(3).toNanos();NetworkSession.Event event=null;
+            while(event==null && System.nanoTime()<deadline){event=host.poll();Thread.sleep(5);}
+            assertNotNull(event);assertEquals(NetworkSession.HELLO,event.type());
+        }
+    }
+    @Test void latestUpdatesReplaceStaleFramesWhileGameThreadIsBusy() throws Exception {
+        int port=port();try(NetworkSession host=NetworkSession.host(port);NetworkSession client=NetworkSession.connect("127.0.0.1",port)) {
+            long deadline=System.nanoTime()+Duration.ofSeconds(3).toNanos();
+            while(host.peerIds().isEmpty() && System.nanoTime()<deadline)Thread.sleep(5);
+            int peer=host.peerIds().iterator().next();
+            for(int i=0;i<500;i++) {
+                host.send(peer,NetworkSession.STATE,new byte[]{(byte)i});
+                host.send(peer,NetworkSession.POSES,new byte[]{(byte)i});
+            }
+            Thread.sleep(200);
+            host.send(peer,NetworkSession.STATE,new byte[]{42});
+            host.send(peer,NetworkSession.RESULT,new byte[]{99});
+            Thread.sleep(200);
+            NetworkSession.Event update=client.poll();assertNotNull(update);assertEquals(NetworkSession.STATE,update.type());assertEquals(42,update.data()[0]);
+            NetworkSession.Event result=client.poll();assertNotNull(result);assertEquals(NetworkSession.RESULT,result.type());
+            assertEquals(1,client.peerIds().size());
+        }
+    }
+    @Test void serverReportsRejectionInsteadOfResettingConnection() throws Exception {
+        int port=port();try(NetworkSession host=NetworkSession.host(port);NetworkSession client=NetworkSession.connect("127.0.0.1",port)) {
+            long deadline=System.nanoTime()+Duration.ofSeconds(3).toNanos();
+            while(host.peerIds().isEmpty() && System.nanoTime()<deadline)Thread.sleep(5);
+            host.reject(host.peerIds().iterator().next(),"Некорректный слот");
+            NetworkSession.Event event=null;
+            while(event==null && System.nanoTime()<deadline){event=client.poll();Thread.sleep(5);}
+            assertNotNull(event);assertEquals(NetworkSession.ERROR,event.type());
+            assertEquals("Некорректный слот",NetworkSession.input(event.data()).readUTF());
         }
     }
     @Test void sharedChestTransfersDoNotDuplicateItems() {

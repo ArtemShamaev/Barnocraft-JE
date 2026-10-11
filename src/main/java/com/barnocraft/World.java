@@ -10,6 +10,10 @@ public final class World implements VoxelVolume {
     public static final int WIDTH = CHUNK * CHUNKS_X, DEPTH = CHUNK * CHUNKS_Z, HEIGHT = 128;
     public static final int REGION_CACHE_LIMIT = 8;
     private final long seed;
+    private final Dimension dimension;
+    private final List<Portal.Site> portals;
+    private final List<HellMob> hellMobs=new ArrayList<>();
+    private float hellSpawnClock=25;
     private final int width, depth;
     private final boolean features;
     private final Map<Integer,Block> edits = new HashMap<>();
@@ -39,12 +43,17 @@ public final class World implements VoxelVolume {
     final WaterSimulation water=new WaterSimulation(this);
 
     public World() { this(new Random().nextLong()); }
-    public World(long seed) { this(seed, WIDTH, DEPTH, true); }
+    public World(long seed) { this(seed,Dimension.SURFACE); }
+    public World(long seed,Dimension dimension) { this(seed,WIDTH,DEPTH,true,dimension); }
     static World sample(long seed) { return new World(seed,80,80,true); }
     static World flat() { return new World(0,80,80,false); }
     private World(long seed, int width, int depth, boolean features) {
+        this(seed,width,depth,features,Dimension.SURFACE);
+    }
+    private World(long seed,int width,int depth,boolean features,Dimension dimension) {
+        this.dimension=dimension;this.portals=features?Portal.sites(seed,width,depth):List.of();
         this.seed = seed; this.width = width; this.depth = depth; this.features = features;
-        if (features) { generateDrops(); generateSheep(); }
+        if (features && dimension==Dimension.SURFACE) { generateDrops(); generateSheep(); }
     }
     private void generateDrops() {
         // Убираем генерацию палок и камушков на земле
@@ -156,6 +165,7 @@ public final class World implements VoxelVolume {
         }
     }
     public synchronized void ensureSheepNear(Vector3f position) {
+        if(dimension!=Dimension.SURFACE)return;
         long local=sheep.stream().filter(animal -> {
             float dx=animal.x()-position.x,dz=animal.z()-position.z;
             return dx*dx+dz*dz<72*72;
@@ -163,6 +173,7 @@ public final class World implements VoxelVolume {
         if (local<16) spawnSheepNear(position,(int)(16-local),new Random(seed^Float.floatToIntBits(position.x)^((long)Float.floatToIntBits(position.z)<<32)^sheep.size()),12,64);
     }
     public synchronized void ensureFishNear(Vector3f position) {
+        if(dimension!=Dimension.SURFACE)return;
         fish.removeIf(f -> Math.abs(f.x()-position.x)>96 || Math.abs(f.z()-position.z)>96);
         if(fishSpawnClock<5) return;
         fishSpawnClock=0;
@@ -294,6 +305,7 @@ public final class World implements VoxelVolume {
         return true;
     }
     public synchronized void updateZombies(float tpf,Player player) {
+        if(dimension!=Dimension.SURFACE)return;
         if(tpf<=0) return;
         zombies.removeIf(m -> (m.x()-player.position.x)*(m.x()-player.position.x)+(m.z()-player.position.z)*(m.z()-player.position.z)>80*80);
         if(zombies.size()>3) {
@@ -443,13 +455,15 @@ public final class World implements VoxelVolume {
         if (found==null) return null;
         drops.remove(found); return found.type();
     }
+    public Dimension dimension(){return dimension;}
+    List<Portal.Site> portals(){return portals;}
     public long seed() { return seed; }
     public int width() { return width; }
     public int depth() { return depth; }
     public int chunksX() { return width / CHUNK; }
     public int chunksZ() { return depth / CHUNK; }
-    public int groundHeight(int x, int z) { return features ? Terrain.height(seed,x,z) : 5; }
-    public boolean desert(int x,int z) { return features && Terrain.desert(seed,x,z); }
+    public int groundHeight(int x, int z) { return dimension==Dimension.HELL_FOREST?HellTerrain.height(seed,x,z):features ? Terrain.height(seed,x,z) : 5; }
+    public boolean desert(int x,int z) { return dimension==Dimension.SURFACE && features && Terrain.desert(seed,x,z); }
     public boolean protectedSpawn(int x, int z, int radius) {
         return Math.abs(x-width/2) <= radius && Math.abs(z-depth/2) <= radius;
     }
@@ -462,7 +476,7 @@ public final class World implements VoxelVolume {
         int rx = x / Region.WIDTH, rz = z / Region.DEPTH, key = rx * 100 + rz;
         Region result = regions.get(key);
         if (result == null) {
-            result = new Region(seed,rx*Region.WIDTH,rz*Region.DEPTH,width,depth,features);
+            result = new Region(seed,rx*Region.WIDTH,rz*Region.DEPTH,width,depth,features,dimension);
             regions.put(key,result);
             if (regions.size() > REGION_CACHE_LIMIT) regions.remove(regions.keySet().iterator().next());
         }
@@ -488,7 +502,7 @@ public final class World implements VoxelVolume {
     }
 
     public synchronized boolean set(int x, int y, int z, Block block) {
-        if (!inside(x,y,z) || block.door() || block == Block.ROTATOR || get(x,y,z) == block) return false;
+        if (!inside(x,y,z) || block.immutable() || get(x,y,z).immutable() || block.door() || block == Block.ROTATOR || get(x,y,z) == block) return false;
         if (get(x,y,z) == Block.STONECUTTER) stonecutters.remove(key(x,y,z));
         if (get(x,y,z) == Block.FURNACE) { furnaces.remove(key(x,y,z)); furnaceFuel.remove(key(x,y,z)); furnaceProgress.remove(key(x,y,z)); }
         if(get(x,y,z)==Block.CHEST) {
@@ -827,6 +841,7 @@ public final class World implements VoxelVolume {
         write(x,y,z,Block.STAIRS); orientation(x,y,z,facing); return true;
     }
     public synchronized boolean rotate(int x, int y, int z, Player player) {
+        if(get(x,y,z).immutable())return false;
         Block block = get(x,y,z);
         if(block.bed()) {
             int oldFacing=rotation(x,y,z); int[] old=bedOffset(oldFacing);
@@ -853,12 +868,17 @@ public final class World implements VoxelVolume {
     }
     public synchronized Snapshot snapshot() {
         return new Snapshot(seed,Map.copyOf(edits),List.copyOf(doors.values()),Map.copyOf(rotations),
-            Map.copyOf(stonecutters),Map.copyOf(furnaces),List.copyOf(sheep),List.copyOf(zombies),dayTime,keepInventory,Map.copyOf(workshops),mods.save(),Map.copyOf(chests),Map.copyOf(water.levels));
+            Map.copyOf(stonecutters),Map.copyOf(furnaces),List.copyOf(sheep),List.copyOf(zombies),dayTime,keepInventory,Map.copyOf(workshops),mods.save(),Map.copyOf(chests),Map.copyOf(water.levels),dimension,List.copyOf(hellMobs));
     }
     public record Snapshot(long seed, Map<Integer,Block> edits, List<Door> doors, Map<Integer,Integer> rotations,
                            Map<Integer,MachineSlots> stonecutters,Map<Integer,FurnaceSlots> furnaces,List<Sheep> sheep,List<Zombie> zombies,
-                           float dayTime,boolean keepInventory,Map<Integer,Metalworking.State> workshops,String modData,Map<Integer,ChestData> chests,Map<Integer,Integer> waterLevels) {
-        public Snapshot { workshops=Map.copyOf(workshops);chests=Map.copyOf(chests);waterLevels=Map.copyOf(waterLevels); }
+                           float dayTime,boolean keepInventory,Map<Integer,Metalworking.State> workshops,String modData,Map<Integer,ChestData> chests,Map<Integer,Integer> waterLevels,Dimension dimension,List<HellMob> hellMobs) {
+        public Snapshot(long seed,Map<Integer,Block> edits,List<Door> doors,Map<Integer,Integer> rotations,
+                        Map<Integer,MachineSlots> stonecutters,Map<Integer,FurnaceSlots> furnaces,List<Sheep> sheep,List<Zombie> zombies,
+                        float dayTime,boolean keepInventory,Map<Integer,Metalworking.State> workshops,String modData,Map<Integer,ChestData> chests,Map<Integer,Integer> waterLevels) {
+            this(seed,edits,doors,rotations,stonecutters,furnaces,sheep,zombies,dayTime,keepInventory,workshops,modData,chests,waterLevels,Dimension.SURFACE,List.of());
+        }
+        public Snapshot { hellMobs=List.copyOf(hellMobs);Objects.requireNonNull(dimension);workshops=Map.copyOf(workshops);chests=Map.copyOf(chests);waterLevels=Map.copyOf(waterLevels); }
         public Snapshot(long seed,Map<Integer,Block> edits,List<Door> doors,Map<Integer,Integer> rotations,
                         Map<Integer,MachineSlots> stonecutters,Map<Integer,FurnaceSlots> furnaces,List<Sheep> sheep,List<Zombie> zombies,
                         float dayTime,boolean keepInventory,Map<Integer,Metalworking.State> workshops,String modData,Map<Integer,ChestData> chests) {
@@ -899,7 +919,7 @@ public final class World implements VoxelVolume {
 
     /** Apply an authoritative server snapshot without rebuilding the world or its region cache. */
     synchronized Set<Integer> applyNetwork(Snapshot state) {
-        if(state.seed()!=seed)throw new IllegalArgumentException("Server world changed");
+        if(state.seed()!=seed || state.dimension()!=dimension)throw new IllegalArgumentException("Server world changed");
         Set<Integer> changed=new HashSet<>();
         Set<Integer> keys=new HashSet<>(edits.keySet());keys.addAll(state.edits().keySet());
         for(int key:keys)if(!Objects.equals(edits.get(key),state.edits().get(key))
@@ -914,13 +934,14 @@ public final class World implements VoxelVolume {
         stonecutters.clear();stonecutters.putAll(state.stonecutters());furnaces.clear();furnaces.putAll(state.furnaces());
         chests.clear();chests.putAll(state.chests());
         sheep.clear();sheep.addAll(state.sheep());zombies.clear();zombies.addAll(state.zombies());
+        hellMobs.clear();hellMobs.addAll(state.hellMobs());
         dayTime=state.dayTime();keepInventory=state.keepInventory();
         if(!changed.isEmpty())blockRevision++;
         return changed;
     }
 
     public static World restore(Snapshot saved) {
-        World world = new World(saved.seed());
+        World world = new World(saved.seed(),saved.dimension());
         world.edits.putAll(saved.edits());
         world.blockRevision=saved.edits().size();
         world.rotations.putAll(saved.rotations());
@@ -944,9 +965,63 @@ public final class World implements VoxelVolume {
         world.zombies.clear(); world.zombies.addAll(saved.zombies());
         world.dayTime=saved.dayTime(); world.keepInventory=saved.keepInventory();
         for (Door door : saved.doors()) world.doors.put(world.key(door.x(),door.y(),door.z()),door);
+        world.hellMobs.addAll(saved.hellMobs());
         world.mods.restore(saved.modData());
         return world;
     }
+    public synchronized List<HellMob> hellMobs(){return List.copyOf(hellMobs);}
+    synchronized void addHellMob(HellMob mob){hellMobs.add(mob);}
+    synchronized void updateHellMobs(float dt,List<Player> players) {
+        if(dimension!=Dimension.HELL_FOREST || players.isEmpty())return;
+        // Retire distant creatures and trim populations from older saves too.
+        hellMobs.removeIf(m->players.stream().allMatch(p->hellDistanceSquared(m,p)>80*80));
+        if(hellMobs.size()>4)hellMobs.subList(4,hellMobs.size()).clear();
+        hellSpawnClock-=Math.max(0,dt);
+        if(hellSpawnClock<=0) {
+            hellSpawnClock=25;
+            if(hellMobs.size()<4) {
+                Random random=new Random(seed^Float.floatToIntBits(dayTime)^hellMobs.size());
+                Player player=players.get(random.nextInt(players.size()));
+                for(int attempt=0;attempt<8;attempt++) {
+                    double angle=random.nextDouble()*Math.PI*2;
+                    int radius=24+random.nextInt(13);
+                    int x=(int)(player.position.x+Math.cos(angle)*radius),z=(int)(player.position.z+Math.sin(angle)*radius);
+                    if(portals.stream().anyMatch(p->(p.x()-x)*(p.x()-x)+(p.z()-z)*(p.z()-z)<20*20))continue;
+                    if(players.stream().anyMatch(p->{float dx=p.position.x-x,dz=p.position.z-z;return dx*dx+dz*dz<24*24;}))continue;
+                    int y=groundHeight(x,z)+1;
+                    if(inside(x,y+2,z) && get(x,y,z)==Block.AIR && get(x,y+1,z)==Block.AIR && get(x,y+2,z)==Block.AIR
+                            && get(x,y-1,z).solid() && y>HellTerrain.LAVA_LEVEL) {
+                        HellMob.Kind kind=random.nextBoolean()?HellMob.Kind.IMP:HellMob.Kind.BOAR;
+                        hellMobs.add(HellMob.spawn(kind,x+.5f,y+(kind==HellMob.Kind.IMP?1.2f:0),z+.5f));
+                        break;
+                    }
+                }
+            }
+        }
+        for(int i=0;i<hellMobs.size();i++) {
+            HellMob mob=hellMobs.get(i);
+            Player nearest=players.stream().min(Comparator.comparingDouble(p->p.position.distanceSquared(new Vector3f(mob.x(),mob.y(),mob.z())))).orElseThrow();
+            hellMobs.set(i,mob.tick(this,Math.min(dt,.1f),nearest));
+        }
+    }
+    private static float hellDistanceSquared(HellMob mob,Player player) {
+        float dx=mob.x()-player.position.x,dz=mob.z()-player.position.z;return dx*dx+dz*dz;
+    }
+    synchronized boolean attackHellMob(Vector3f origin,Vector3f direction,float reach,Inventory inventory) {
+        Hit wall=raycast(origin,direction,reach);float limit=wall==null?reach:origin.distance(new Vector3f(wall.x()+.5f,wall.y()+.5f,wall.z()+.5f));
+        int found=-1;float best=limit;
+        for(int i=0;i<hellMobs.size();i++) {
+            HellMob mob=hellMobs.get(i);float r=mob.kind()==HellMob.Kind.IMP?.35f:.55f;
+            Door.Contact hit=new Door.Bounds(mob.x()-r,mob.y(),mob.z()-r,mob.x()+r,mob.y()+1.2f,mob.z()+r).ray(origin,direction,reach);
+            if(hit!=null && hit.distance()<best){best=hit.distance();found=i;}
+        }
+        if(found<0)return false;
+        HellMob mob=hellMobs.get(found);int health=mob.health()-2;
+        if(health<=0){hellMobs.remove(found);inventory.add(mob.kind()==HellMob.Kind.IMP?ItemType.EMBER_CRYSTAL:ItemType.COAL,2);}
+        else hellMobs.set(found,new HellMob(mob.id(),mob.kind(),mob.x(),mob.y(),mob.z(),health,mob.heading(),mob.cooldown()));
+        return true;
+    }
+
     public record Hit(int x, int y, int z, int nx, int ny, int nz) {}
 
     /** Amanatides-Woo traversal. Explicit infinity avoids 0 * infinity on grid planes. */

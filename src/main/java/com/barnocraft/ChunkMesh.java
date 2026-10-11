@@ -8,7 +8,7 @@ import java.util.List;
 
 /** One mesh per texture in each chunk; hidden faces never reach the GPU. */
 public final class ChunkMesh {
-    public static final String[] TEXTURES = {"grass.png", "grass_2.png", "stone.png", "pesok.png", "tree_planks.png", "glass.png", "tree.png", "listia.png", "coal.png", "iron.png", "deeprock.png", "door.png", "stairs.png", "stonecutter.png", "furnace.png", "torch.png", "water.png", "casting_table.png", "welder.png", "lantern.png", "bed.png", "furnace_side.png", "pillow.png", "gold.png", "farmland.png", "chest.png"};
+    public static final String[] TEXTURES = {"grass.png", "grass_2.png", "stone.png", "pesok.png", "tree_planks.png", "glass.png", "tree.png", "listia.png", "coal.png", "iron.png", "deeprock.png", "door.png", "stairs.png", "stonecutter.png", "furnace.png", "torch.png", "water.png", "casting_table.png", "welder.png", "lantern.png", "bed.png", "furnace_side.png", "pillow.png", "gold.png", "farmland.png", "chest.png", "hell_soil.png", "hell_stone.png", "hell_basalt.png", "hell_log.png", "hell_leaves.png", "ember_crystal.png", "hell_lava.png", "portal_frame.png", "forest_portal.png"};
     private static final int[][] NORMALS = {{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}};
     private static final int[][] U = {{0,0,-1},{0,0,1},{1,0,0},{1,0,0},{1,0,0},{-1,0,0}};
     private static final int[][] V = {{0,1,0},{0,1,0},{0,0,-1},{0,0,1},{0,1,0},{0,1,0}};
@@ -22,6 +22,15 @@ public final class ChunkMesh {
             for (int z = cz * World.CHUNK; z < (cz + 1) * World.CHUNK; z++)
                 for (int y = 0; y < World.HEIGHT; y++) {
                     Block block = world.get(x, y, z);
+                    if(block==Block.FOREST_PORTAL) {
+                        // One double-sided plane; no internal or overlapping transparent faces.
+                        builders[34].face(x,y,z,4,0,.5f,.5f,0,1);continue;
+                    }
+                    if(block==Block.HELL_LAVA) {
+                        for(int f=0;f<6;f++)if(world.get(x+NORMALS[f][0],y+NORMALS[f][1],z+NORMALS[f][2])!=Block.HELL_LAVA)
+                            builders[32].face(x,y,z,f,0,.5f,.45f,.5f,1);
+                        continue;
+                    }
                     if (block==Block.WATER) {
                         float height=world.waterHeight(x,y,z);
                         if(world.get(x,y+1,z)==Block.AIR)builders[16].waterFace(x,y,z,2,0,height);
@@ -101,12 +110,19 @@ public final class ChunkMesh {
                     for (int f = 0; f < 6; f++) {
                         int[] n = rotate(NORMALS[f],rotation);
                         Block neighbor = world.get(x+n[0], y+n[1], z+n[2]);
-                        // Cutout leaves do not fully cover any neighboring face, even another leaf.
-                        boolean occluded = neighbor != Block.AIR && neighbor != Block.WATER && neighbor != Block.LEAVES && neighbor != Block.CHEST && !neighbor.door() && neighbor != Block.STAIRS && neighbor != Block.STONECUTTER && !neighbor.bed() && neighbor != Block.LANTERN
+                        // Surface leaves are cutout; opaque hell foliage fully hides shared faces.
+                        boolean occluded = neighbor.solid() && neighbor != Block.LEAVES && neighbor != Block.CHEST && !neighbor.door() && neighbor != Block.STAIRS && neighbor != Block.STONECUTTER && !neighbor.bed() && neighbor != Block.LANTERN
                                 && (neighbor != Block.GLASS || block == Block.GLASS);
                         if (occluded || block==Block.WATER && neighbor==Block.WATER) continue;
                         int texture = switch (block) {
                             case GRASS -> f == 2 ? 1 : 0;
+                            case HELL_SOIL -> 26;
+                            case HELL_STONE -> 27;
+                            case HELL_BASALT -> 28;
+                            case HELL_LOG -> 29;
+                            case HELL_LEAVES -> 30;
+                            case EMBER_CRYSTAL -> 31;
+                            case PORTAL_FRAME -> 33;
                             case STONE -> 2;
                             case SAND -> 3;
                             case PLANKS -> 4;

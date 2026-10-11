@@ -21,9 +21,14 @@ import java.util.concurrent.*;
 public final class Barnocraft extends SimpleApplication {
     private enum Screen { MAIN, WORLDS, MULTIPLAYER, OPEN_NETWORK, MODS, CREATE_WORLD, DELETE_WORLD, SETTINGS, PAUSE, INVENTORY, STONECUTTER, FURNACE, CHEST, LOADING, GAME }
     private World world;
+    private final Map<Dimension,World> dimensionWorlds=new EnumMap<>(Dimension.class);
+    private final Map<Dimension,Vector3f> dimensionBeds=new EnumMap<>(Dimension.class);
+    private float portalCooldown,lavaClock;
+
     private Multiplayer multiplayer;
     private Future<NetworkSession> connecting;
     private int characterSkin;
+    private String serverAddresses="";
     private final StringBuilder networkAddress=new StringBuilder("localhost"),networkPort=new StringBuilder("25565");
     private boolean addressFocused=true;
     private final Map<Integer,PlayerModel> remoteModels=new HashMap<>();
@@ -64,7 +69,7 @@ public final class Barnocraft extends SimpleApplication {
     private Screen screen = Screen.MAIN, settingsBack = Screen.MAIN;
     private String message = "";
     private final boolean smoke;
-    private boolean furnitureSmoke,creativeSmoke,panoramaSmoke;
+    private boolean furnitureSmoke,creativeSmoke,panoramaSmoke,hellSmoke;
     private int networkSmoke;
     private final GameOptions options = new GameOptions();
     private final Path savesPath;
@@ -86,7 +91,8 @@ public final class Barnocraft extends SimpleApplication {
         saves=new SaveStore(savesPath);
     }
     public static void main(String[] args) throws IOException {
-        Barnocraft game=new Barnocraft(Arrays.asList(args).contains("--smoke") || Arrays.asList(args).contains("--furniture-smoke") || Arrays.asList(args).contains("--creative-smoke") || Arrays.asList(args).contains("--panorama-smoke") || Arrays.asList(args).contains("--network-smoke-host") || Arrays.asList(args).contains("--network-smoke-client"));
+        Barnocraft game=new Barnocraft(Arrays.asList(args).contains("--smoke") || Arrays.asList(args).contains("--furniture-smoke") || Arrays.asList(args).contains("--creative-smoke") || Arrays.asList(args).contains("--panorama-smoke") || Arrays.asList(args).contains("--network-smoke-host") || Arrays.asList(args).contains("--network-smoke-client") || Arrays.asList(args).contains("--hell-smoke"));
+        game.hellSmoke=Arrays.asList(args).contains("--hell-smoke");
         game.networkSmoke=Arrays.asList(args).contains("--network-smoke-host")?1:Arrays.asList(args).contains("--network-smoke-client")?2:0;
         game.panoramaSmoke=Arrays.asList(args).contains("--panorama-smoke");
         game.creativeSmoke=Arrays.asList(args).contains("--creative-smoke");
@@ -123,7 +129,7 @@ public final class Barnocraft extends SimpleApplication {
         bind(); bindNetworkText(); show(Screen.MAIN);
         if (smoke) {
             setPauseOnLostFocus(false);
-            screenshots=new ScreenshotAppState("target/",networkSmoke>0?"network-"+networkSmoke+"-":panoramaSmoke?"panorama-smoke-":creativeSmoke?"creative-smoke-":"menu-smoke-"); stateManager.attach(screenshots);
+            screenshots=new ScreenshotAppState("target/",hellSmoke?"hell-smoke-":networkSmoke>0?"network-"+networkSmoke+"-":panoramaSmoke?"panorama-smoke-":creativeSmoke?"creative-smoke-":"menu-smoke-"); stateManager.attach(screenshots);
         }
     }
     private void bind() {
@@ -292,6 +298,9 @@ public final class Barnocraft extends SimpleApplication {
         if((name.equals("break") || name.equals("place")) && world.mods.playerAction(name.equals("place"),cam.getLocation(),cam.getDirection(),player,inventory,selected)) {
             resetBreakProgress();return;
         }
+        if(name.equals("break") && pressed && world.attackHellMob(cam.getLocation(),cam.getDirection(),Player.REACH,inventory)) {
+            inventory.damageToolAt(selected);resetBreakProgress();return;
+        }
         if (name.equals("break") && pressed && world.attackSheep(cam.getLocation(),cam.getDirection(),Player.REACH,inventory)) {
             inventory.damageToolAt(selected);
             breakHeld=false;
@@ -349,8 +358,8 @@ public final class Barnocraft extends SimpleApplication {
                 return;
             }
             case PAUSE -> {
-                title=isGuest()?"Сетевая игра":"Мир "+slot;
-                subtitle=multiplayer==null?"Пауза • изменения сохраняются":isGuest()?"Мир хранится у хозяина":"Сервер работает · порт "+multiplayer.port();
+                title=world!=null && world.dimension()==Dimension.HELL_FOREST?"Адский лес":isGuest()?"Сетевая игра":"Мир "+slot;
+                subtitle=multiplayer==null?"Пауза • изменения сохраняются":isGuest()?"Мир хранится у хозяина":serverAddresses+":"+multiplayer.port();
                 buttons.add(new Menu.Button("resume","Продолжить")); buttons.add(new Menu.Button("settings","Настройки"));
                 if(!isGuest()) {
                     buttons.add(new Menu.Button(multiplayer==null?"open_network":"close_network",multiplayer==null?"Открыть для сети":"Закрыть сеть"));
@@ -679,7 +688,7 @@ public final class Barnocraft extends SimpleApplication {
     private void finishLoading() {
         if (loading!=null && loading.isDone()) {
             try {
-                SaveStore.Saved saved=loading.get(); world=saved.world(); slot=loadingSlot; worldName=saved.worldName();
+                SaveStore.Saved saved=loading.get(); world=saved.world();dimensionWorlds.put(world.dimension(),world); slot=loadingSlot; worldName=saved.worldName();
                 inventory.restore(saved.inventory());
                 SaveStore.Pose p=saved.pose(); player.position.set(p.x(),p.y(),p.z()); player.velocityY=0; player.grounded=false;
                 player.setCreative(p.creative());inventory.setCreative(p.creative());
@@ -708,13 +717,14 @@ public final class Barnocraft extends SimpleApplication {
         World.Snapshot snapshot=world.snapshot(); SaveStore.Pose pose=pose(); int target=slot;
         Inventory.Snapshot inventorySnapshot = inventory.snapshot();
         String savedName=worldName;
-        saving=io.submit(()->{ saves.save(target,snapshot,pose,inventorySnapshot,savedName); return null; });
+        List<World.Snapshot> dimensions=dimensionWorlds.values().stream().map(World::snapshot).toList();
+        saving=io.submit(()->{ saves.saveUniverse(target,dimensions,snapshot,pose,inventorySnapshot,savedName); return null; });
     }
     private boolean saveNow() {
         if (world==null || isGuest()) return true;
         try {
             if (saving!=null) { saving.get(); saving=null; }
-            saves.save(slot,world.snapshot(),pose(),inventory.snapshot(),worldName); autosave=0; return true;
+            saves.saveUniverse(slot,dimensionWorlds.values().stream().map(World::snapshot).toList(),world.snapshot(),pose(),inventory.snapshot(),worldName); autosave=0; return true;
         } catch(Exception e) { saving=null; failure("Не удалось сохранить мир",e); show(Screen.PAUSE); return false; }
     }
     private void failure(String prefix,Exception e) {
@@ -722,7 +732,7 @@ public final class Barnocraft extends SimpleApplication {
         message=prefix+": "+cause.getMessage(); System.err.println(message);
     }
     private void unload() {
-        cancelConnection();closeNetwork();
+        cancelConnection();closeNetwork();dimensionWorlds.clear();dimensionBeds.clear();portalCooldown=0;lavaClock=0;
         if (pythonMods!=null) { pythonMods.close(); pythonMods=null; }
         hud.modOverlays(java.util.Map.of());
         if (worldView!=null) worldView.close(); worldView=null; world=null; slot=0; worldName="";
@@ -840,10 +850,47 @@ public final class Barnocraft extends SimpleApplication {
             worldView.changed(x,z);
         }
     }
+    private World dimensionWorld(Dimension dimension) {
+        return dimensionWorlds.computeIfAbsent(dimension,key->{
+            try {
+                if(slot>0 && Files.exists(saves.dimensionPath(slot,key))) {
+                    World saved=saves.loadDimension(slot,key).world();
+                    if(saved.dimension()!=key || saved.seed()!=world.seed())throw new IOException("Измерение не соответствует миру");
+                    return saved;
+                }
+                return new World(world.seed(),key);
+            } catch(IOException e){throw new IllegalStateException("Не удалось открыть измерение: "+e.getMessage(),e);}
+        });
+    }
+    private void updatePortal(float dt) {
+        portalCooldown=Math.max(0,portalCooldown-dt);
+        if(!active || world==null || portalCooldown>0)return;
+        Portal.Site portal=Portal.touching(world,player.position);if(portal==null)return;
+        if(isGuest()) {
+            if(!multiplayer.busy()){requestNetwork(NetworkGameplay.Command.of("portal"));portalCooldown=1;}
+            return;
+        }
+        try {
+            World destination=dimensionWorld(world.dimension().other());
+            if(!saveNow()){portalCooldown=3;return;}
+            switchDimension(destination,Portal.safeExit(destination,portal));saveNow();
+        } catch(RuntimeException e){portalCooldown=3;hud.notify(e.getMessage());}
+    }
+    private void switchDimension(World destination,Vector3f arrival) {
+        dimensionBeds.put(world.dimension(),new Vector3f(player.respawnX(),player.respawnY(),player.respawnZ()));
+        if(pythonMods!=null){pythonMods.close();pythonMods=null;}
+        if(worldView!=null)worldView.close();
+        world=destination;player.position.set(arrival);player.velocityY=0;player.grounded=false;
+        Vector3f bed=dimensionBeds.getOrDefault(world.dimension(),new Vector3f(-1,-1,-1));player.restoreRespawnPoint(bed.x,bed.y,bed.z);
+        portalCooldown=3;resetBreakProgress();inventoryDrag=null;commandOpen=false;hud.commandLine("");
+        worldView=new WorldView(assetManager,world,TexturePack.from(options.texturePack));rootNode.attachChild(worldView.node);
+        if(!isGuest()){pythonMods=new PythonModApi(PythonModApi.defaultDirectory(),world,player,inventory);pythonMods.start();}
+        loadingSlot=0;show(Screen.LOADING);updateCamera();hud.notify(world.dimension().title);
+    }
     private boolean isGuest(){return multiplayer!=null && !multiplayer.hosting();}
     private NetworkPlayer networkPose() {
         boolean moving=active && (movement[0] || movement[1] || movement[2] || movement[3]);
-        return new NetworkPlayer(multiplayer==null?0:multiplayer.localId(),characterSkin,player.position.x,player.position.y,player.position.z,yaw,pitch,moving,!player.grounded,active && breakHeld);
+        return new NetworkPlayer(multiplayer==null?0:multiplayer.localId(),characterSkin,player.position.x,player.position.y,player.position.z,yaw,pitch,moving,!player.grounded,active && breakHeld,world==null?Dimension.SURFACE:world.dimension());
     }
     private void requestNetwork(NetworkGameplay.Command command) {
         if(isGuest())multiplayer.request(command,networkPose(),inventory,selected,player.creative());
@@ -882,7 +929,8 @@ public final class Barnocraft extends SimpleApplication {
             if(screen==Screen.OPEN_NETWORK) {
                 if(world==null || multiplayer!=null)return;
                 multiplayer=new Multiplayer(NetworkSession.host(port),characterSkin,networkListener());
-                setPauseOnLostFocus(false);message="Мир открыт для сети · порт "+port;show(Screen.PAUSE);
+                multiplayer.worldProvider(this::dimensionWorld);
+                serverAddresses=NetworkSession.lanAddresses();setPauseOnLostFocus(false);message="Адрес: "+serverAddresses+" · порт "+port;show(Screen.PAUSE);
             } else if(screen==Screen.MULTIPLAYER) {
                 String address=networkAddress.toString().strip();
                 if(address.isEmpty())throw new IllegalArgumentException("Введите адрес сервера");
@@ -902,7 +950,12 @@ public final class Barnocraft extends SimpleApplication {
             NetworkSession session=connecting.get();connecting=null;
             multiplayer=new Multiplayer(session,characterSkin,networkListener());
             setPauseOnLostFocus(false);message="Загрузка мира сервера...";show(Screen.MULTIPLAYER);
-        } catch(Exception e) { connecting=null;failure("Не удалось подключиться",e);show(Screen.MULTIPLAYER); }
+        } catch(Exception e) {
+            connecting=null;Throwable cause=e;while(cause.getCause()!=null)cause=cause.getCause();
+            // Keep the contextual LAN diagnostic from NetworkSession instead of the platform's terse cause.
+            Throwable diagnostic=e;while(diagnostic.getCause()!=null && !(diagnostic instanceof IOException))diagnostic=diagnostic.getCause();
+            message=diagnostic.getMessage()==null?cause.toString():diagnostic.getMessage();System.err.println(message);show(Screen.MULTIPLAYER);
+        }
     }
     private void cancelConnection() {
         if(connecting instanceof CompletableFuture<?> pending)pending.whenComplete((session,error)->{if(session instanceof NetworkSession network)network.close();});
@@ -917,7 +970,7 @@ public final class Barnocraft extends SimpleApplication {
     private Multiplayer.Listener networkListener() {
         return new Multiplayer.Listener() {
             public void joined(SaveStore.Decoded state) {
-                world=World.restore(state.world());worldName=state.worldName();slot=0;loadingSlot=0;
+                world=World.restore(state.world());dimensionWorlds.put(world.dimension(),world);worldName=state.worldName();slot=0;loadingSlot=0;
                 inventory.restore(Inventory.emptySnapshot());
                 SaveStore.Pose spawn=state.pose();player.position.set(spawn.x(),spawn.y(),spawn.z());
                 player.setCreative(false);inventory.setCreative(false);player.restoreHealth(Player.MAX_HEALTH);player.restoreHunger(Player.MAX_HUNGER);
@@ -927,6 +980,12 @@ public final class Barnocraft extends SimpleApplication {
                 worldView=new WorldView(assetManager,world,TexturePack.from(options.texturePack));rootNode.attachChild(worldView.node);
                 updateCamera();show(Screen.LOADING);
             }
+            public void transferred(SaveStore.Decoded state,Inventory.Snapshot items) {
+                inventory.restore(items);inventory.setCreative(player.creative());
+                World destination=World.restore(state.world());dimensionWorlds.put(destination.dimension(),destination);
+                switchDimension(destination,new Vector3f(state.pose().x(),state.pose().y(),state.pose().z()));
+            }
+            public void damage(int amount){player.damage(amount);}
             public void changed(Set<Integer> cells) {
                 if(worldView==null)return;
                 Set<Integer> chunks=new HashSet<>();
@@ -963,6 +1022,9 @@ public final class Barnocraft extends SimpleApplication {
         });
         for(NetworkPlayer remote:multiplayer.players.values()) {
             if(remote.id()==multiplayer.localId())continue;
+            if(world==null || remote.dimension()!=world.dimension()) {
+                PlayerModel hidden=remoteModels.get(remote.id());if(hidden!=null)hidden.node.setCullHint(Spatial.CullHint.Always);continue;
+            }
             PlayerModel model=remoteModels.get(remote.id());
             if(model==null || model.skin!=remote.skin()) {
                 if(model!=null)model.node.removeFromParent();model=new PlayerModel(assetManager,remote.skin(),true);
@@ -1023,6 +1085,7 @@ public final class Barnocraft extends SimpleApplication {
         int y = hit.y();
         int z = hit.z();
         Block block = world.get(x, y, z);
+        if (block.immutable()) {resetBreakProgress();return;}
         if (block == Block.AIR || (!block.solid() && block != Block.TORCH && block != Block.LANTERN && !block.crop())) { resetBreakProgress(); return; }
 
         if (breakX != x || breakY != y || breakZ != z) {
@@ -1090,12 +1153,18 @@ public final class Barnocraft extends SimpleApplication {
             world.updateSheep(tpf);
             world.updateZombies(tpf,player);
             world.updateFish(tpf);
+            if(multiplayer!=null && multiplayer.hosting())multiplayer.simulateDimensions(tpf,world,player);
+            else world.updateHellMobs(tpf,List.of(player));
             world.ensureSheepNear(player.position);
             world.ensureFishNear(player.position);
             if(active)for (ItemType item : ItemType.values()) {
                 int count=world.collectNear(player.position,1.25f,item);
                 for(int i=0;i<count;i++) inventory.add(item);
             }
+        }
+        if(active && world!=null) {
+            lavaClock-=tpf;
+            if(world.get((int)player.position.x,(int)(player.position.y+.2f),(int)player.position.z)==Block.HELL_LAVA && lavaClock<=0){player.damage(4);lavaClock=.75f;}
         }
         if(player.health()<lastPlayerHealth)hud.damageFlash();
         lastPlayerHealth=player.health();
@@ -1127,6 +1196,7 @@ public final class Barnocraft extends SimpleApplication {
             player.update(world,Math.min(tpf,.05f),move,jump || (player.inWater(world) && flyUp)); jump=false; updateCamera();
             autosave+=tpf; if (autosave>=30) { autoSave(); autosave=0; }
         }
+        updatePortal(tpf);
         if (saving!=null && saving.isDone()) {
             try { saving.get(); } catch(Exception e) { failure("Ошибка автосохранения",e); show(Screen.PAUSE); }
             saving=null;
@@ -1159,6 +1229,15 @@ public final class Barnocraft extends SimpleApplication {
         if (smoke) smokeFrame();
     }
     private void updateLighting(float dt) {
+        boolean hell=world!=null && world.dimension()==Dimension.HELL_FOREST && screen!=Screen.MAIN && screen!=Screen.LOADING;
+        atmosphere.sky.setCullHint(hell?Spatial.CullHint.Always:Spatial.CullHint.Never);
+        if(hell) {
+            ColorRGBA fog=new ColorRGBA(.30f,.055f,.08f,1);
+            ambientLight.setColor(new ColorRGBA(.65f,.32f,.25f,1));sunLight.setColor(new ColorRGBA(.4f,.15f,.08f,1));
+            viewPort.setBackgroundColor(fog);
+            if(worldView!=null){worldView.setDaylight(.4f);worldView.setAtmosphere(new Vector3f(.2f,.8f,.2f),new ColorRGBA(1,.5f,.3f,1),fog);}
+            return;
+        }
         float time=world==null || screen==Screen.LOADING || screen==Screen.MAIN?.5f:world.dayTime();
         float sunHeight=FastMath.sin((time-.25f)*FastMath.TWO_PI);
         float day=FastMath.clamp((sunHeight+.08f)/.78f,0,1);
@@ -1332,7 +1411,7 @@ public final class Barnocraft extends SimpleApplication {
         } else {
             switch(smokeStage) {
                 case 0 -> {
-                    if(smokeTicks==8){smokeClick("multiplayer");smokeClick("network_skin_1");networkPort.setLength(0);networkPort.append(System.getProperty("barnocraft.smokePort","25577"));show(Screen.MULTIPLAYER);}
+                    if(smokeTicks==8){smokeClick("multiplayer");smokeClick("network_skin_1");networkAddress.setLength(0);networkAddress.append(System.getProperty("barnocraft.smokeAddress","127.0.0.1"));networkPort.setLength(0);networkPort.append(System.getProperty("barnocraft.smokePort","25577"));show(Screen.MULTIPLAYER);}
                     if(smokeTicks==12)screenshots.takeScreenshot();
                     if(smokeTicks==16){smokeClick("network_start");smokeStage=1;}
                 }
@@ -1358,7 +1437,44 @@ public final class Barnocraft extends SimpleApplication {
             }
         }
     }
+    private void hellSmokeFrame() {
+        smokeTicks++;if(smokeTicks>12000)throw new IllegalStateException("Hell smoke timeout stage "+smokeStage+" "+message);
+        if(smokeStage==0 && smokeTicks==8){smokeClick("worlds");smokeClick("world1");smokeStage=1;}
+        else if(smokeStage==1 && screen==Screen.GAME && worldView.loadedCount()>=25) {
+            Portal.Site portal=world.portals().get(0);Vector3f exit=portal.exit(world);
+            player.position.set(exit.x,exit.y,exit.z+2);player.setCreative(true);inventory.setCreative(true);
+            inventory.add(ItemType.EMBER_CRYSTAL,3);yaw=0;pitch=0;updateCamera();smokeStage=2;smokeTicks=0;
+        } else if(smokeStage==2 && smokeTicks>=90 && worldView.ready(player.position.x,player.position.z)) {
+            screenshots.takeScreenshot();Portal.Site portal=world.portals().get(0);
+            player.position.set(portal.x()+.5f,portal.floor(world.seed(),world.dimension())+1.01f,portal.z()+.5f);
+            portalCooldown=0;smokeStage=3;smokeTicks=0;
+        } else if(smokeStage==3 && world.dimension()==Dimension.HELL_FOREST && screen==Screen.GAME && worldView.loadedCount()>=25) {
+            Portal.Site portal=world.portals().get(0);int y=portal.floor(world.seed(),world.dimension())+1;
+            world.set(portal.x()+4,y,portal.z()+4,Block.HELL_LOG);worldView.changed(portal.x()+4,portal.z()+4);
+            world.addHellMob(HellMob.spawn(HellMob.Kind.IMP,portal.x()-1.1f,y+1.2f,portal.z()+2.5f));
+            world.addHellMob(HellMob.spawn(HellMob.Kind.BOAR,portal.x()+1.8f,y,portal.z()+2.5f));
+            player.position.set(portal.x()+.5f,y+.01f,portal.z()+5.8f);yaw=0;pitch=-.04f;updateCamera();
+            smokeStage=4;smokeTicks=0;
+        } else if(smokeStage==4 && smokeTicks==90) {
+            check(world.hellMobs().size()>=2,"hell creatures spawned");screenshots.takeScreenshot();
+        } else if(smokeStage==4 && smokeTicks==110) {
+            Portal.Site portal=world.portals().get(0);int y=portal.floor(world.seed(),world.dimension())+1;
+            player.position.set(portal.x()+.5f,y+.01f,portal.z()+.5f);portalCooldown=0;smokeStage=5;
+        } else if(smokeStage==5 && world.dimension()==Dimension.SURFACE && screen==Screen.GAME) {
+            check(inventory.count(ItemType.EMBER_CRYSTAL)==3,"inventory survives both portal directions");
+            check(saveNow(),"both dimensions saved");startWorld(slot);smokeStage=6;
+        } else if(smokeStage==6 && screen==Screen.GAME) {
+            Portal.Site portal=world.portals().get(0);
+            player.position.set(portal.x()+.5f,portal.floor(world.seed(),world.dimension())+1.01f,portal.z()+.5f);portalCooldown=0;smokeStage=7;
+        } else if(smokeStage==7 && world.dimension()==Dimension.HELL_FOREST && screen==Screen.GAME) {
+            Portal.Site portal=world.portals().get(0);int y=portal.floor(world.seed(),world.dimension())+1;
+            check(world.get(portal.x()+4,y,portal.z()+4)==Block.HELL_LOG,"hell edit survives reload");
+            check(inventory.count(ItemType.EMBER_CRYSTAL)==3,"inventory survives reload");
+            System.out.println("HELL_FOREST_SMOKE_OK");quit();
+        }
+    }
     private void smokeFrame() {
+        if(hellSmoke){hellSmokeFrame();return;}
         if(networkSmoke>0){networkSmokeFrame();return;}
         if(panoramaSmoke) { panoramaSmokeFrame(); return; }
         if(creativeSmoke) { creativeSmokeFrame(); return; }

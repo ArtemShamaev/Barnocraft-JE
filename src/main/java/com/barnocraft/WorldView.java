@@ -1,6 +1,7 @@
 package com.barnocraft;
 
 import com.jme3.asset.AssetManager;
+import com.jme3.asset.TextureKey;
 import com.jme3.asset.AssetNotFoundException;
 import com.jme3.light.PointLight;
 import com.jme3.material.Material;
@@ -24,6 +25,7 @@ import java.util.concurrent.*;
 public final class WorldView implements AutoCloseable {
     public final Node node = new Node("World");
     private final Node dropsNode = new Node("Dropped items");
+    private final HellMobView hellMobView;
     private final Node sheepNode = new Node("Sheep");
     private final Node zombieNode = new Node("Zombies");
     private final Node fishNode = new Node("Yas fish");
@@ -52,6 +54,7 @@ public final class WorldView implements AutoCloseable {
     public WorldView(AssetManager assets, World world, TexturePack pack) {
         this.assets = assets;
         this.world = world;
+        hellMobView=new HellMobView(assets);node.attachChild(hellMobView.node);
         modView=new ModView(assets,world.mods); node.attachChild(modView.node);
         this.pack = pack;
         node.attachChild(dropsNode);
@@ -67,15 +70,17 @@ public final class WorldView implements AutoCloseable {
         for (int i = 0; i < materials.length; i++) {
             Material m = new Material(assets,"MatDefs/Voxel.j3md");
             m.setTexture("DiffuseMap",texture(assets,pack.path(ChunkMesh.TEXTURES[i])));
+            m.setFloat("AmbientFloor",world.dimension()==Dimension.HELL_FOREST?.28f:.012f);
+            m.setFloat("Emission",i==31 || i==32 || i==34?1:0);
             m.setBoolean("UseMaterialColors",true); m.setBoolean("UseFog",true);
             m.setColor("FogColor",new ColorRGBA(135/255f,206/255f,235/255f,1));
             m.setVector2("LinearFog",new Vector2f(40,64));
-            m.setColor("Ambient",ColorRGBA.White); m.setColor("Diffuse",new ColorRGBA(1,1,1,i==16?.38f:i==5?.7f:1));
-            if (i == 5 || i == 16) {
+            m.setColor("Ambient",ColorRGBA.White); m.setColor("Diffuse",new ColorRGBA(1,1,1,i==34?.74f:i==16?.38f:i==5?.7f:1));
+            if (i == 5 || i == 16 || i == 34) {
                 m.setTransparent(true); m.getAdditionalRenderState().setBlendMode(RenderState.BlendMode.Alpha);
                 m.getAdditionalRenderState().setDepthWrite(false);
             }
-            if (i == 16) m.getAdditionalRenderState().setFaceCullMode(RenderState.FaceCullMode.Off);
+            if (i == 16 || i==34) m.getAdditionalRenderState().setFaceCullMode(RenderState.FaceCullMode.Off);
             if (i == 7 || i == 11 || i == 15) {
                 m.setFloat("AlphaDiscardThreshold",.5f);
                 m.getAdditionalRenderState().setFaceCullMode(RenderState.FaceCullMode.Off);
@@ -146,15 +151,19 @@ public final class WorldView implements AutoCloseable {
                 });
             }
         }
+        boolean mipmaps=file.startsWith("hell_") || file.equals("ember_crystal.png") || file.equals("portal_frame.png") || file.equals("forest_portal.png");
         Texture t;
         try {
-            t = assets.loadTexture("Textures/"+name);
+            t = assets.loadTexture(textureKey(name,mipmaps));
         } catch (AssetNotFoundException e) {
             int separator = name.lastIndexOf('/');
             if (separator < 0) throw e;
-            t = assets.loadTexture("Textures/"+name.substring(separator+1));
+            t = assets.loadTexture(textureKey(name.substring(separator+1),mipmaps));
         }
-        t.setMagFilter(Texture.MagFilter.Nearest); t.setMinFilter(Texture.MinFilter.NearestNoMipMaps); return t;
+        t.setMagFilter(Texture.MagFilter.Nearest); t.setMinFilter(mipmaps?Texture.MinFilter.NearestNearestMipMap:Texture.MinFilter.NearestNoMipMaps); return t;
+    }
+    private static TextureKey textureKey(String name,boolean mipmaps) {
+        TextureKey key=new TextureKey("Textures/"+name,true);key.setGenerateMips(mipmaps);return key;
     }
     private static Texture createStonecutterTexture() {
         BufferedImage image = new BufferedImage(16,16,BufferedImage.TYPE_INT_ARGB);
@@ -339,7 +348,7 @@ public final class WorldView implements AutoCloseable {
         modView.update();
         refreshDrops();
         refreshSheep();
-        refreshZombies();
+        refreshZombies();hellMobView.update(world);
         refreshFish();
         refreshTorchLights(x,z);
         int cx = (int)x/World.CHUNK, cz = (int)z/World.CHUNK;
@@ -537,7 +546,7 @@ public final class WorldView implements AutoCloseable {
         for (int i=0;i<result.meshes().length;i++) {
             if (result.meshes()[i]==null) continue;
             Geometry g=new Geometry(ChunkMesh.TEXTURES[i],result.meshes()[i]); g.setMaterial(materials[i]);
-            if (i==5 || i==16) g.setQueueBucket(RenderQueue.Bucket.Transparent);
+            if (i==5 || i==16 || i==34) g.setQueueBucket(RenderQueue.Bucket.Transparent);
             chunk.attachChild(g);
         }
         loaded.put(result.key(),chunk); node.attachChild(chunk);

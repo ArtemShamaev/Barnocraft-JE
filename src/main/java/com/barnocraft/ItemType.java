@@ -69,6 +69,12 @@ final class ItemType {
     static final ItemType GOLD_PICKAXE=new ItemType("GOLD_PICKAXE","Золотая кирка","gold_pickaxe.png");
     static final ItemType GOLD_SHOVEL=new ItemType("GOLD_SHOVEL","Золотая лопата","gold_shovel.png");
     static final ItemType ROTATOR=new ItemType("ROTATOR","Поворачиватель","rotator.png");
+    static final ItemType HELL_SOIL=new ItemType("HELL_SOIL","Пепельная почва","hell_soil.png");
+    static final ItemType HELL_STONE=new ItemType("HELL_STONE","Адский камень","hell_stone.png");
+    static final ItemType HELL_BASALT=new ItemType("HELL_BASALT","Базальт","hell_basalt.png");
+    static final ItemType HELL_LOG=new ItemType("HELL_LOG","Багровый ствол","hell_log.png");
+    static final ItemType HELL_LEAVES=new ItemType("HELL_LEAVES","Багровая листва","hell_leaves.png");
+    static final ItemType EMBER_CRYSTAL=new ItemType("EMBER_CRYSTAL","Жар-кристалл","ember_crystal.png");
     String title, texture;
     private final String id;
     private int customDurability;

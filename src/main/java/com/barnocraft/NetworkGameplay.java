@@ -16,7 +16,7 @@ final class NetworkGameplay {
         String kind=command.kind();
         if(kind.equals("collect")) { world.collectIntoInventory(player.position,1.25f,inv);return Reply.none(); }
         if(kind.equals("attack")) {
-            if(world.attackSheep(origin,direction,Player.REACH,inv) || world.attackZombie(origin,direction,Player.REACH))inv.damageToolAt(selected);
+            if(world.attackHellMob(origin,direction,Player.REACH,inv) || world.attackSheep(origin,direction,Player.REACH,inv) || world.attackZombie(origin,direction,Player.REACH))inv.damageToolAt(selected);
             return Reply.none();
         }
         if(kind.startsWith("container"))return container(world,player,inv,command);
@@ -28,6 +28,7 @@ final class NetworkGameplay {
         if(hit==null)return Reply.none();
         int x=hit.x(),y=hit.y(),z=hit.z();Block block=world.get(x,y,z);
         if(kind.equals("mine")) {
+            if(block.immutable())return Reply.none();
             if(!block.solid() && !block.crop() && block!=Block.LANTERN && block!=Block.TORCH)return Reply.none();
             if(block.crop() && !creative)world.harvestCrop(x,y,z,inv);
             else if(world.set(x,y,z,Block.AIR) && !creative) { inv.addBlock(block);inv.damageToolAt(selected); }

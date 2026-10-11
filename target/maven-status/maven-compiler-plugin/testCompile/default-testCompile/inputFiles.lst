@@ -3,14 +3,17 @@
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/CreativeTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/CubeFontTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/DeepstoneTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/DimensionNetworkTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/DoorTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/EquipmentTexturesTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/FurnitureTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/GoldTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/HellForestTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/MobTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/ModApiTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/MultiplayerTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/PartialLightingTest.java
+/home/artem/Barnocraft-WE/src/test/java/com/barnocraft/PlayerModelTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/PlayerTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/RotationTest.java
 /home/artem/Barnocraft-WE/src/test/java/com/barnocraft/SaveStoreTest.java

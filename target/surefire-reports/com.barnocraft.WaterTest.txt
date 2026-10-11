@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.barnocraft.WaterTest
 -------------------------------------------------------------------------------
-Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.036 s -- in com.barnocraft.WaterTest
+Tests run: 2, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 0.032 s -- in com.barnocraft.WaterTest

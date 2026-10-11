@@ -165,6 +165,12 @@ final class Inventory {
     static Block toBlock(ItemType type) {
         if (type == null) return null;
         return switch (type.name()) {
+            case "HELL_SOIL" -> Block.HELL_SOIL;
+            case "HELL_STONE" -> Block.HELL_STONE;
+            case "HELL_BASALT" -> Block.HELL_BASALT;
+            case "HELL_LOG" -> Block.HELL_LOG;
+            case "HELL_LEAVES" -> Block.HELL_LEAVES;
+            case "EMBER_CRYSTAL" -> Block.EMBER_CRYSTAL;
             case "DIRT" -> Block.GRASS;
             case "STONE" -> Block.STONE;
             case "SAND" -> Block.SAND;
@@ -236,6 +242,13 @@ final class Inventory {
         }
 
         ItemType item = switch (block) {
+            case HELL_SOIL -> ItemType.HELL_SOIL;
+            case HELL_STONE -> ItemType.HELL_STONE;
+            case HELL_BASALT -> ItemType.HELL_BASALT;
+            case HELL_LOG -> ItemType.HELL_LOG;
+            case HELL_LEAVES -> ItemType.HELL_LEAVES;
+            case EMBER_CRYSTAL -> ItemType.EMBER_CRYSTAL;
+
             case GRASS -> ItemType.DIRT;
             case STONE -> ItemType.STONE;
             case SAND -> ItemType.SAND;

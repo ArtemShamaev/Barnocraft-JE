@@ -48,7 +48,7 @@ final class Terrain {
         return patch > threshold ? Block.DEEPSTONE : Block.STONE;
     }
 
-    private static double noise(long seed, double x, double z) {
+    static double noise(long seed, double x, double z) {
         int ix = (int) Math.floor(x), iz = (int) Math.floor(z);
         double fx = smooth(x - ix), fz = smooth(z - iz);
         return mix(mix(value(seed, ix, iz), value(seed, ix + 1, iz), fx),

@@ -85,7 +85,8 @@ final class Menu {
         }
         networkButton("network_start",connecting?"Подключение...":hosting?"Открыть мир":"Подключиться",-270,-232,300,44,new ColorRGBA(.32f,.43f,.27f,1));
         networkButton("back",connecting?"Отмена":"Назад",50,-232,220,44,NORMAL);
-        if(message!=null && !message.isBlank())text(message.length()>64?message.substring(0,64):message,13,-274,new ColorRGBA(1,.76f,.48f,1));
+        if(message!=null && !message.isBlank())for(int line=0;line<3 && line*70<message.length();line++)
+            text(message.substring(line*70,Math.min(message.length(),(line+1)*70)),13,-260-line*15,new ColorRGBA(1,.76f,.48f,1));
         resize(width,height);
     }
     private void networkButton(String id,String label,float x,float y,float width,float height,ColorRGBA color) {

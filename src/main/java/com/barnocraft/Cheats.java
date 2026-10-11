@@ -16,7 +16,11 @@ final class Cheats {
             player.setCreative(creative); inventory.setCreative(creative);
             return creative?"Креатив: E — предметы, Пробел / Shift — полёт":"Режим выживания";
         }
-        return execute(command,inventory,world,player.position);
+        String result=execute(command,inventory,world,player.position);
+        if(args[0].equalsIgnoreCase("tp") && result.startsWith("Телепортировано")) {
+            player.velocityY=0;player.grounded=false;
+        }
+        return result;
     }
     static String execute(String line,Inventory inventory,World world,Vector3f player) {
         String[] args=line.trim().split("\\s+");
@@ -29,12 +33,23 @@ final class Cheats {
             case "time" -> time(args,world);
             case "setblock" -> setBlock(args,world);
             case "tp" -> teleport(args,world,player);
-            default -> "Команды: gamemode 0|1, give, spawn sheep, kill, keepInventory, time, setblock";
+            default -> "Команды: gamemode 0|1, give, spawn sheep, kill, keepInventory, time, setblock, tp river|portal";
         };
     }
 
     private static String teleport(String[] args,World world,Vector3f player) {
-        if(args.length!=2 || !args[1].equalsIgnoreCase("river")) return "Формат: tp river";
+        if(args.length!=2) return "Формат: tp river|portal";
+        if(args[1].equalsIgnoreCase("portal")) {
+            Portal.Site nearest=null;double best=Double.POSITIVE_INFINITY;
+            for(Portal.Site site:world.portals()) {
+                double dx=site.x()+.5-player.x,dz=site.z()+.5-player.z,distance=dx*dx+dz*dz;
+                if(distance<best){best=distance;nearest=site;}
+            }
+            if(nearest==null)return "Портал не найден";
+            player.set(Portal.safeExit(world,nearest));
+            return "Телепортировано к порталу";
+        }
+        if(!args[1].equalsIgnoreCase("river")) return "Формат: tp river|portal";
         int px=Math.round(player.x), pz=Math.round(player.z);
         for(int radius=1;radius<Math.max(world.width(),world.depth());radius++) {
             for(int dx=-radius;dx<=radius;dx++) for(int dz=-radius;dz<=radius;dz++) {

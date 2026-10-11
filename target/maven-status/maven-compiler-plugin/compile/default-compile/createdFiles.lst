@@ -1,3 +1,4 @@
+com/barnocraft/Dimension.class
 com/barnocraft/PlayerModel.class
 com/barnocraft/SaveStore$Saved.class
 com/barnocraft/NetworkPlayer.class
@@ -8,6 +9,7 @@ com/barnocraft/WorldView$Built.class
 com/barnocraft/NetworkGameplay$Reply.class
 com/barnocraft/Sheep.class
 com/barnocraft/ModWorld.class
+com/barnocraft/HellMob.class
 com/barnocraft/Barnocraft$Screen.class
 com/barnocraft/Door$Contact.class
 com/barnocraft/ChunkMesh$Builder.class
@@ -19,6 +21,7 @@ com/barnocraft/NetworkGameplay$Command.class
 com/barnocraft/Fish.class
 com/barnocraft/Barnocraft$2.class
 com/barnocraft/NetworkSession$Writer.class
+com/barnocraft/Portal.class
 com/barnocraft/Terrain.class
 com/barnocraft/Metalworking.class
 com/barnocraft/WorldView.class
@@ -28,6 +31,7 @@ com/barnocraft/Region.class
 com/barnocraft/WaterSimulation.class
 com/barnocraft/World$ChestData.class
 com/barnocraft/GameOptions.class
+com/barnocraft/Portal$Site.class
 com/barnocraft/ModWorld$Projectile.class
 com/barnocraft/Menu$Slider.class
 com/barnocraft/World$FurnaceSlots.class
@@ -37,8 +41,10 @@ com/barnocraft/SaveStore.class
 com/barnocraft/Metalworking$State.class
 com/barnocraft/NetworkSession$Peer.class
 com/barnocraft/Menu$Hit.class
+com/barnocraft/HellMob$Kind.class
 com/barnocraft/NetworkSession$Event.class
 com/barnocraft/DroppedItem.class
+com/barnocraft/HellTerrain.class
 com/barnocraft/VoxelLighting.class
 com/barnocraft/NetworkSession.class
 com/barnocraft/Barnocraft.class
@@ -50,6 +56,7 @@ com/barnocraft/Multiplayer.class
 com/barnocraft/ChunkMesh.class
 com/barnocraft/Block.class
 com/barnocraft/NetworkGameplay.class
+com/barnocraft/HellMobView.class
 com/barnocraft/Multiplayer$Listener.class
 com/barnocraft/PythonModApi.class
 com/barnocraft/VoxelVolume.class

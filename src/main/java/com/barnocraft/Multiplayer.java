@@ -10,10 +10,22 @@ final class Multiplayer implements AutoCloseable {
         void changed(Set<Integer> cells);
         void result(Inventory.Snapshot inventory,NetworkGameplay.Reply reply);
         void disconnected(String reason);
+        default void transferred(SaveStore.Decoded state,Inventory.Snapshot inventory){joined(state);}
+        default void damage(int amount){}
+
     }
     final NetworkSession transport;
     final Map<Integer,NetworkPlayer> players=new HashMap<>();
     private final Listener listener;
+    private java.util.function.Function<Dimension,World> worldProvider;
+    private final Map<Integer,Boolean> creativePlayers=new HashMap<>();
+    void worldProvider(java.util.function.Function<Dimension,World> provider){worldProvider=provider;}
+    private World worldFor(Dimension dimension,World fallback) {
+        if(fallback.dimension()==dimension)return fallback;
+        World found=worldProvider==null?null:worldProvider.apply(dimension);
+        if(found==null)throw new IllegalArgumentException("Измерение недоступно");return found;
+    }
+
     private final Map<Integer,Long> lastAction=new HashMap<>();
     private int localId;
     private float poseClock,stateClock,collectClock;
@@ -51,13 +63,14 @@ final class Multiplayer implements AutoCloseable {
                     continue;
                 }
                 if(hosting())handleHost(event,world,hostPose,name);else handleClient(event,world);
+                if(event.type()==NetworkSession.TRANSFER)return;
             } catch(IOException | RuntimeException e) {
-                transport.disconnect(event.peer());
+                if(hosting())transport.reject(event.peer(),e.getMessage());else transport.disconnect(event.peer());
                 if(!hosting()){listener.disconnected("Ошибка сети: "+e.getMessage());return;}
             }
         }
         if(!welcomed) {
-            if(System.nanoTime()-connectedAt>15_000_000_000L)listener.disconnected("Сервер не отвечает");
+            if(System.nanoTime()-connectedAt>90_000_000_000L)listener.disconnected("Соединение установлено, но хозяин не передал мир за 90 секунд");
             return;
         }
         if(world==null)return;
@@ -82,18 +95,21 @@ final class Multiplayer implements AutoCloseable {
     }
     private void handleHost(NetworkSession.Event event,World world,SaveStore.Pose pose,String name) throws IOException {
         if(world==null)throw new IOException("Мир закрыт");
+        World activeWorld=world;
         var in=NetworkSession.input(event.data());int peer=event.peer();
+        if(players.containsKey(peer))world=worldFor(players.get(peer).dimension(),activeWorld);
         switch(event.type()) {
             case NetworkSession.HELLO -> {
                 if(players.containsKey(peer))throw new IOException("Повторное подключение");
                 int skin=in.readUnsignedByte();if(skin>1)throw new IOException("Неизвестный персонаж");
-                players.put(peer,new NetworkPlayer(peer,skin,pose.x(),pose.y(),pose.z(),pose.yaw(),pose.pitch(),false,false,false));
+                players.put(peer,new NetworkPlayer(peer,skin,pose.x(),pose.y(),pose.z(),pose.yaw(),pose.pitch(),false,false,false,world.dimension()));
                 byte[] state=state(world,pose,name);
                 transport.send(peer,NetworkSession.WELCOME,NetworkSession.packet(out->{out.writeInt(peer);out.write(state);}));
             }
             case NetworkSession.POSES -> {
                 if(!players.containsKey(peer))throw new IOException("Сначала подключитесь");
-                players.put(peer,NetworkPlayer.read(in,peer));
+                NetworkPlayer updated=NetworkPlayer.read(in,peer);
+                if(updated.dimension()==players.get(peer).dimension())players.put(peer,updated);
             }
             case NetworkSession.ACTION -> {
                 if(!players.containsKey(peer))throw new IOException("Сначала подключитесь");
@@ -103,12 +119,26 @@ final class Multiplayer implements AutoCloseable {
                 Inventory inventory=new Inventory();inventory.restore(SaveStore.readInventory(in,true,true));
                 var command=new NetworkGameplay.Command(in.readUTF(),in.readInt(),in.readInt(),in.readInt(),in.readInt(),in.readInt(),in.readBoolean(),in.readUTF());
                 if(in.available()!=0)throw new IOException("Лишние данные команды");
-                players.put(peer,actor);lastAction.put(peer,id);
+                if(actor.dimension()!=players.get(peer).dimension())throw new IOException("Измерение игрока изменилось");
+                players.put(peer,actor);lastAction.put(peer,id);creativePlayers.put(peer,creative);
+                if(command.kind().equals("portal")) {
+                    Portal.Site portal=Portal.touching(world,actor.position());
+                    if(portal!=null) {
+                        World destination=worldFor(world.dimension().other(),activeWorld);
+                        var exit=Portal.safeExit(destination,portal);
+                        NetworkPlayer moved=new NetworkPlayer(peer,actor.skin(),exit.x,exit.y,exit.z,actor.yaw(),actor.pitch(),false,false,false,destination.dimension());
+                        players.put(peer,moved);
+                        SaveStore.Pose arrival=new SaveStore.Pose(exit.x,exit.y,exit.z,actor.yaw(),actor.pitch(),selected);
+                        byte[] transfer=state(destination,arrival,name);
+                        transport.send(peer,NetworkSession.TRANSFER,NetworkSession.packet(out->{SaveStore.writeInventory(out,inventory.snapshot());out.write(transfer);}));
+                        return;
+                    }
+                }
                 World.Snapshot before=world.snapshot();
                 NetworkGameplay.Reply reply=NetworkGameplay.execute(world,actor,inventory,selected,creative,command);
                 listener.changed(changedCells(before,world.snapshot()));
                 // The authoritative state precedes the inventory response on the same TCP stream.
-                broadcastState(world,pose,name);
+                broadcastState(activeWorld,pose,name);
                 transport.send(peer,NetworkSession.RESULT,NetworkSession.packet(out->{
                     out.writeLong(id);SaveStore.writeInventory(out,inventory.snapshot());
                     out.writeUTF(reply.screen());out.writeInt(reply.x());out.writeInt(reply.y());out.writeInt(reply.z());out.writeUTF(reply.notice());
@@ -120,13 +150,20 @@ final class Multiplayer implements AutoCloseable {
     private void handleClient(NetworkSession.Event event,World world) throws IOException {
         var in=NetworkSession.input(event.data());
         switch(event.type()) {
+            case NetworkSession.DAMAGE -> { int damage=in.readInt();if(damage<0 || damage>20)throw new IOException("Некорректный урон");listener.damage(damage); }
+            case NetworkSession.TRANSFER -> {
+                Inventory.Snapshot inventory=SaveStore.readInventory(in,true,true);
+                SaveStore.Decoded decoded=readState(in,null);pending=0;listener.transferred(decoded,inventory);
+            }
+            case NetworkSession.ERROR -> throw new IOException("Сервер: "+in.readUTF());
             case NetworkSession.WELCOME -> {
                 if(welcomed)throw new IOException("Повтор приветствия");localId=in.readInt();
                 SaveStore.Decoded decoded=readState(in,null);welcomed=true;listener.joined(decoded);
             }
             case NetworkSession.STATE -> {
                 if(!welcomed || world==null)return;
-                SaveStore.Decoded decoded=readState(in,world);listener.changed(world.applyNetwork(decoded.world()));
+                SaveStore.Decoded decoded=readState(in,world);
+                if(decoded.world().dimension()==world.dimension())listener.changed(world.applyNetwork(decoded.world()));
             }
             case NetworkSession.POSES -> {
                 int count=in.readInt();if(count<1 || count>NetworkSession.MAX_PLAYERS)throw new IOException("Некорректное число игроков");
@@ -161,13 +198,35 @@ final class Multiplayer implements AutoCloseable {
         for(int i=0;i<count;i++)drops.add(new DroppedItem(ItemType.valueOf(in.readUTF()),in.readInt(),in.readInt(),in.readInt(),in.readInt()));
         count=in.readInt();if(count<0 || count>1000)throw new IOException("Слишком много рыб");
         List<Fish> fish=new ArrayList<>();for(int i=0;i<count;i++)fish.add(new Fish(in.readFloat(),in.readFloat(),in.readFloat(),in.readFloat(),in.readFloat()));
-        if(world!=null)world.applyNetworkEntities(drops,fish);
+        if(world!=null && world.dimension()==state.world().dimension())world.applyNetworkEntities(drops,fish);
         return state;
     }
     private void broadcastState(World world,SaveStore.Pose pose,String name) throws IOException {
         if(players.keySet().stream().noneMatch(id->id!=0))return;
-        byte[] state=state(world,pose,name);
-        for(int peer:players.keySet())if(peer!=0)transport.send(peer,NetworkSession.STATE,state);
+        Map<Dimension,byte[]> states=new EnumMap<>(Dimension.class);
+        for(int peer:players.keySet())if(peer!=0) {
+            Dimension dimension=players.get(peer).dimension();
+            byte[] bytes=states.get(dimension);
+            if(bytes==null){bytes=state(worldFor(dimension,world),pose,name);states.put(dimension,bytes);}
+            transport.send(peer,NetworkSession.STATE,bytes);
+        }
+    }
+    void simulateDimensions(float dt,World localWorld,Player localPlayer) {
+        Set<Dimension> dimensions=new HashSet<>();dimensions.add(localWorld.dimension());
+        for(NetworkPlayer pose:players.values())dimensions.add(pose.dimension());
+        for(Dimension dimension:dimensions) {
+            World simulated=worldFor(dimension,localWorld);List<Player> targets=new ArrayList<>();Map<Integer,Player> guests=new HashMap<>();
+            if(dimension==localWorld.dimension())targets.add(localPlayer);
+            for(NetworkPlayer pose:players.values())if(pose.id()!=0 && pose.dimension()==dimension) {
+                Player player=new Player();player.position.set(pose.position());player.setCreative(creativePlayers.getOrDefault(pose.id(),false));
+                targets.add(player);guests.put(pose.id(),player);
+            }
+            if(simulated!=localWorld){simulated.advanceTime(dt);simulated.updateFurnaces(dt);simulated.updateWater(dt);simulated.updateCrops(dt);}
+            simulated.updateHellMobs(dt,targets);
+            for(var entry:guests.entrySet())if(entry.getValue().health()<Player.MAX_HEALTH)try {
+                int damage=Player.MAX_HEALTH-entry.getValue().health();transport.send(entry.getKey(),NetworkSession.DAMAGE,NetworkSession.packet(out->out.writeInt(damage)));
+            } catch(IOException e){transport.reject(entry.getKey(),e.getMessage());}
+        }
     }
     static Set<Integer> changedCells(World.Snapshot before,World.Snapshot after) {
         Set<Integer> keys=new HashSet<>(before.edits().keySet());keys.addAll(after.edits().keySet());

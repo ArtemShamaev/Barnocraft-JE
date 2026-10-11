@@ -4,11 +4,15 @@
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Cheats.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/ChunkMesh.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/CubeFont.java
+/home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Dimension.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Door.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/DroppedItem.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/EquipmentTextures.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Fish.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/GameOptions.java
+/home/artem/Barnocraft-WE/src/main/java/com/barnocraft/HellMob.java
+/home/artem/Barnocraft-WE/src/main/java/com/barnocraft/HellMobView.java
+/home/artem/Barnocraft-WE/src/main/java/com/barnocraft/HellTerrain.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Hud.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Inventory.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/ItemType.java
@@ -24,6 +28,7 @@
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/NetworkSession.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Player.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/PlayerModel.java
+/home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Portal.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/PythonModApi.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/Region.java
 /home/artem/Barnocraft-WE/src/main/java/com/barnocraft/SaveStore.java

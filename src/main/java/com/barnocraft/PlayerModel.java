@@ -66,9 +66,9 @@ final class PlayerModel {
     }
     void update(NetworkPlayer target,float dt) {
         if(!initialized || node.getLocalTranslation().distanceSquared(target.position())>64) { node.setLocalTranslation(target.position());initialized=true; }
-        else node.getLocalTranslation().interpolateLocal(target.position(),1-(float)Math.exp(-dt*16));
+        else node.setLocalTranslation(node.getLocalTranslation().clone().interpolateLocal(target.position(),1-(float)Math.exp(-dt*16)));
         Quaternion rotation=new Quaternion().fromAngles(0,target.yaw(),0);
-        node.getLocalRotation().slerp(rotation,1-(float)Math.exp(-dt*18));
+        Quaternion current=node.getLocalRotation().clone();current.slerp(rotation,1-(float)Math.exp(-dt*18));node.setLocalRotation(current);
         animate(dt,target.moving(),target.airborne(),target.swinging(),target.pitch());
     }
     void animate(float dt,boolean moving,boolean airborne,boolean swinging,float pitch) {

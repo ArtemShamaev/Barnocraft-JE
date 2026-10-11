@@ -11,6 +11,8 @@ MaterialDef Voxel {
         Vector3 SunDirection : 0.4 0.8 0.3
         Color SunTint : 1.0 1.0 1.0 1.0
         Float Daylight : 1.0
+        Float AmbientFloor : 0.012
+        Float Emission : 0.0
         Float Underwater : 0.0
         Vector3 TorchPos
         Boolean HeldTorch : false
